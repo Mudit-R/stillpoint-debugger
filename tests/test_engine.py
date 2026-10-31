@@ -111,6 +111,13 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(self.command('memory 0x1')['error'])
         self.assertEqual(self.command('memory rsp')['state'], 'stopped')
 
+    def test_launch_arguments_are_passed_without_a_shell(self):
+        result=self.command('launch '+str(ROOT/'build/arguments')+'\thello world\t$(echo unsafe)')
+        self.assertEqual(result['error'],'')
+        result=self.command('continue')
+        self.assertIn('argv[1] = hello world',result['output'])
+        self.assertIn('argv[2] = $(echo unsafe)',result['output'])
+
     def test_reject_non_elf(self):
         result = self.command('launch ' + str(ROOT / 'examples/ledger.cpp'))
         self.assertTrue(result['error'])

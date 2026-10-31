@@ -166,7 +166,16 @@ public:
     void command(const std::string& line) {
         std::istringstream in(line); std::string cmd, arg; in >> cmd; std::getline(in >> std::ws, arg);
         if (cmd == "launch") {
-            stop(); load_symbols(arg); output.clear();
+            std::vector<std::string> arguments;
+            size_t start=0;
+            for(;;) {
+                auto end=arg.find('\t',start);
+                arguments.push_back(arg.substr(start,end==std::string::npos ? end : end-start));
+                if(end==std::string::npos) break;
+                start=end+1;
+            }
+            if(arguments.empty() || arguments.front().empty()) throw std::runtime_error("Executable path required");
+            stop(); load_symbols(arguments.front()); output.clear();
             if (capture) fclose(capture);
             capture = tmpfile(); if (!capture) throw std::runtime_error("Cannot create output capture");
             pid = fork();
@@ -178,7 +187,10 @@ public:
                 dup2(fileno(capture), STDOUT_FILENO); dup2(fileno(capture), STDERR_FILENO);
                 if (fileno(capture) > STDERR_FILENO) close(fileno(capture));
                 if (ptrace(PTRACE_TRACEME,0,nullptr,nullptr) == -1) _exit(126);
-                execl(arg.c_str(), arg.c_str(), static_cast<char*>(nullptr)); _exit(127);
+                std::vector<char*> argv;
+                for(auto& value:arguments) argv.push_back(value.data());
+                argv.push_back(nullptr);
+                execv(argv.front(),argv.data()); _exit(127);
             }
             state="running"; wait_event();
             if (state != "stopped") throw std::runtime_error("Executable did not stop at exec");

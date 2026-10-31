@@ -31,8 +31,8 @@ python3 workbench/server.py
 Build your own program into `build/` using
 `g++ -g -O0 -fno-omit-frame-pointer -fno-pie -no-pie your.cpp -o build/your-program`.
 The engine accepts an executable path through its CLI protocol; reload the workbench
-to discover ELF executables in `build/`. Programs are launched without
-arguments in this version; target stdin is disconnected from the debugger command
+to discover ELF executables in `build/`. The arguments field accepts quoted
+arguments (`--name "sample run"`) without invoking a shell. Target stdin is disconnected from the debugger command
 channel and reads EOF. Interactive terminal input is not supported yet.
 
 ## Implemented
@@ -40,6 +40,8 @@ channel and reads EOF. Interactive terminal input is not supported yet.
 - Launch, continue, instruction step, pause, end, and exit/signal reporting.
 - Software breakpoints by function symbol or address, deletion, original-byte
   restoration, instruction-pointer correction and step-over/reinsertion.
+- Source-line breakpoints through the gutter or `ledger.cpp:17` (binutils decoded
+  line tables); unmapped lines produce an explicit error.
 - ELF64 function-symbol parsing with bounds validation.
 - Twelve general/control register values and changed-value highlighting.
 - Frame-pointer stack walking and an eight-word memory inspector accepting
@@ -113,7 +115,7 @@ for state transitions, signal handling, and planned extensions.
 
 ## Next milestones
 
-1. Source-line breakpoints and step-over/step-out; arbitrary project source roots.
+1. Step-over/step-out and arbitrary project source roots.
 2. DWARF local variable inspection with explicit unsupported-expression errors.
 3. Thread lifecycle and thread-specific stop semantics.
 4. Extend the AI investigator with user-approved, bounded experiments and an

@@ -17,7 +17,7 @@ async function command(command, argument = '') {
   if (busy) return;
   busy = true; controls();
   try {
-    const response = await fetch('/api/command', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command, argument})});
+    const response = await fetch('/api/command', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command, argument, arguments:command==='launch'?el('targetArgs').value:undefined})});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Command failed');
     if (command === 'launch' && !data.error) { history=[]; previous={}; lastStop=''; }
@@ -54,7 +54,15 @@ function render(data) {
   if(data.source) {
     el('sourceName').textContent=data.source.name; el('location').textContent='LINE '+data.source.line;
     const source=el('source'); source.replaceChildren();
-    data.source.text.split('\n').forEach((line,i)=>{ const row=text('div','','source-line'+(i+1===data.source.line?' current':'')); row.append(text('span',String(i+1),'ln'),text('code',line)); source.append(row); });
+    data.source.text.split('\n').forEach((line,i)=>{
+      const row=text('div','','source-line'+(i+1===data.source.line?' current':''));
+      const gutter=text('button',String(i+1),'ln');
+      gutter.title=`Set breakpoint at ${data.source.name}:${i+1}`;
+      gutter.setAttribute('aria-label',gutter.title);
+      gutter.disabled=data.state!=='stopped';
+      gutter.onclick=()=>command('break',`${data.source.name}:${i+1}`);
+      row.append(gutter,text('code',line)); source.append(row);
+    });
     source.querySelector('.current')?.scrollIntoView({block:'nearest'});
   } else if(data.state!=='idle') {
     el('sourceName').textContent='SOURCE'; el('location').textContent='No source mapping';
@@ -96,13 +104,15 @@ fetch('/api/ai/config').then(response=>response.json()).then(data=>{
 }).catch(()=>{el('aiStatus').textContent='Could not read AI configuration.';});
 el('aiForm').onsubmit=async event=>{
   event.preventDefault(); if(aiBusy || !aiConfigured)return;
-  aiBusy=true; controls(); el('aiStatus').textContent='Reading the captured stop with the local model…';
+  aiBusy=true; investigation=null; controls(); el('aiStatus').textContent='Reading the captured stop with the local model…';
+  el('exportInvestigation').hidden=true;
   el('aiResult').replaceChildren();
   try {
     const response=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:el('aiQuestion').value})});
     const report=await response.json();
     if(!response.ok)throw new Error(report.error || 'Investigation failed');
     investigation=report;
+    el('exportInvestigation').hidden=false;
     const result=el('aiResult');
     result.append(text('p',report.summary,'ai-summary'));
     for(const item of report.hypotheses) {
@@ -115,4 +125,9 @@ el('aiForm').onsubmit=async event=>{
     if(report.binary!==snapshot.binary || JSON.stringify(report.registers_at_capture)!==JSON.stringify(snapshot.registers))el('aiStatus').textContent+=' · Earlier stop';
   }catch(error){el('aiStatus').textContent=error.message;}
   finally{aiBusy=false;controls();}
+};
+el('exportInvestigation').onclick=()=>{
+  if(!investigation)return;
+  const url=URL.createObjectURL(new Blob([JSON.stringify({format:'stillpoint-investigation-v1',...investigation},null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='stillpoint-investigation.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };

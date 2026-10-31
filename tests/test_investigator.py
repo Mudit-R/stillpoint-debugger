@@ -50,7 +50,7 @@ class InvestigatorTests(TestCase):
             self.assertFalse(payload['stream'])
             self.assertIn('Stopped by signal 11',payload['messages'][1]['content'])
             return Response()
-        with patch.dict(os.environ, {'STILLPOINT_AI_MODEL':'test','STILLPOINT_AI_URL':'http://localhost:11434'}), patch('urllib.request.urlopen',side_effect=model):
+        with patch.dict(os.environ, {'STILLPOINT_AI_MODEL':'test','STILLPOINT_AI_URL':'http://localhost:11434'}), patch('workbench.investigator.local_open',side_effect=model):
             result=investigate(SNAPSHOT,'Explain')
             self.assertEqual(result['status'],'hypothesis')
             self.assertEqual(result['model'],'test')

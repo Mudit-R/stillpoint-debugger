@@ -40,9 +40,22 @@ are outside the supported lifecycle.
 ## Trace interpretation
 
 Source line lookup invokes `addr2line` with an argument vector, never a shell.
+Source breakpoints use GNU readelf's decoded line table and map a filename/line
+to its first executable address. Disassembly comes from GNU objdump and describes
+the executable file, rather than modified instruction bytes in the tracee.
 The stack walker follows RBP under an increasing-address and maximum-distance
 bound; it is not a DWARF unwinder. The stop history is a collection of captured
 observations, not a recording of all execution or a reverse debugger.
+
+## Investigator
+
+The bridge captures a stopped snapshot under the engine lock, then releases
+that lock before contacting a local Ollama endpoint. A separate lock permits
+one model request at a time. The report carries a fingerprint of its evidence;
+the UI marks earlier-stop reports if the binary/register observation changes.
+The model cannot invoke the engine or a shell. Evidence IDs are checked for
+existence; this does not validate the model's reasoning. Endpoint redirects are
+disabled, and source/output text is treated as untrusted prompt data.
 
 The native ptrace interface is documented at
 https://man7.org/linux/man-pages/man2/ptrace.2.html.

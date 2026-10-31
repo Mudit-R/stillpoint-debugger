@@ -7,6 +7,8 @@ import subprocess
 import threading
 import time
 import sys
+import re
+import shlex
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,31 @@ ENGINE = None
 BINARY = None
 AI_LOCK = threading.Lock()
 DISASSEMBLY = {}
+LINE_TABLE = {}
+
+
+def source_breakpoint(location):
+    if not BINARY:
+        raise ValueError('Launch an executable first')
+    key = (str(BINARY), BINARY.stat().st_mtime_ns)
+    if key not in LINE_TABLE:
+        result = subprocess.run(['readelf', '--debug-dump=decodedline', str(BINARY)],
+                                capture_output=True, text=True, timeout=3)
+        mappings = {}
+        for line in result.stdout.splitlines():
+            match = re.match(r'^\s*(\S+)\s+(\d+)\s+(0x[0-9a-fA-F]+)\s', line)
+            if match:
+                name, number, address = match.groups()
+                mappings.setdefault(Path(name).name + ':' + str(int(number)), address)
+        LINE_TABLE.clear()
+        LINE_TABLE[key] = mappings
+    name, separator, number = location.rpartition(':')
+    if not separator or not number.isdigit():
+        raise ValueError('Use a source filename and line number, such as ledger.cpp:15')
+    address = LINE_TABLE[key].get(Path(name).name + ':' + str(int(number)))
+    if not address:
+        raise ValueError('No executable instruction maps to that source line')
+    return address
 
 
 def request_engine(command):
@@ -156,8 +183,17 @@ class Handler(BaseHTTPRequestHandler):
                     candidate = (BUILD / argument).resolve()
                     if not candidate.is_relative_to(BUILD.resolve()) or not candidate.is_file() or candidate.name == 'stillpoint':
                         raise ValueError('Choose an executable from the build directory')
-                    BINARY = candidate
                     argument = str(candidate)
+                    user_args = body.get('arguments','')
+                    if not isinstance(user_args,str) or len(user_args)>1500:
+                        raise ValueError('Arguments must be a string of at most 1500 characters')
+                    parsed = shlex.split(user_args)
+                    if len(parsed)>16 or any(any(char in value for char in '\n\r\t\x00') for value in parsed):
+                        raise ValueError('Use at most 16 arguments without control characters')
+                    argument += ''.join('\t'+value for value in parsed)
+                    BINARY = candidate
+                if command in ('break','delete') and ':' in argument:
+                    argument = source_breakpoint(argument)
                 if command == 'source-step':
                     snapshot = request_engine('status')
                     if snapshot.get('state') != 'stopped':

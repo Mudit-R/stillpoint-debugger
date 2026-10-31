@@ -8,6 +8,14 @@ import urllib.request
 from urllib.parse import urlsplit
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file, code, message, headers, new_url):
+        raise urllib.error.URLError('AI endpoint redirects are disabled')
+
+
+local_open = urllib.request.build_opener(NoRedirect).open
+
+
 def configuration():
     return {'model': os.environ.get('STILLPOINT_AI_MODEL', ''),
             'url': os.environ.get('STILLPOINT_AI_URL', 'http://127.0.0.1:11434')}
@@ -89,7 +97,7 @@ def investigate(snapshot, question):
         data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=55) as response:
+        with local_open(request, timeout=55) as response:
             raw = response.read(100001)
         if len(raw)>100000:
             raise ValueError('Model response exceeded the limit')

@@ -55,6 +55,21 @@ class WorkbenchTests(unittest.TestCase):
             self.command('launch', 'ledger', 'http://untrusted.example')
         self.assertEqual(error.exception.code, 403)
 
+    def test_source_line_breakpoint(self):
+        self.command('launch','ledger')
+        self.command('break','ledger.cpp:17')
+        result=self.command('continue')
+        self.assertIn('Breakpoint',result['reason'])
+        self.assertEqual(result['source']['line'],17)
+        self.command('delete','ledger.cpp:17')
+        self.assertIn('code 0',self.command('continue')['reason'])
+
+    def test_unmapped_source_line_reports_error(self):
+        self.command('launch','ledger')
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.command('break','ledger.cpp:9999')
+        self.assertEqual(error.exception.code,400)
+
     def test_launch_path_escape_is_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.command('launch', '../examples/ledger.cpp')

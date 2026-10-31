@@ -18,6 +18,11 @@ construction, report parsing, citation rejection, missing configuration and
 external-endpoint rejection. These adapter tests do not establish model quality.
 Live model validation, when completed, is recorded separately below.
 
+The source-breakpoint and argument-passing extension brings the automated suite
+to 22 passing tests. These cover executable-line resolution, an explicit error
+for an unmapped line, and arguments containing spaces and shell syntax passed
+literally to the target. The debugger does not spawn a shell for target launch.
+
 Browser QA exercised launch, adding `main`, continuing to the breakpoint,
 instruction stepping with RIP change, and stepping from ledger.cpp line 14 to
 line 15. The screenshot in this directory shows the observed session.
