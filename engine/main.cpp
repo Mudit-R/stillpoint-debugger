@@ -4,6 +4,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <elf.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <cerrno>
 #include <chrono>
@@ -170,7 +171,11 @@ public:
             pid = fork();
             if (pid == -1) throw std::runtime_error("fork failed");
             if (pid == 0) {
+                int null_input = open("/dev/null", O_RDONLY);
+                if (null_input < 0 || dup2(null_input, STDIN_FILENO) == -1) _exit(126);
+                if (null_input > STDERR_FILENO) close(null_input);
                 dup2(fileno(capture), STDOUT_FILENO); dup2(fileno(capture), STDERR_FILENO);
+                if (fileno(capture) > STDERR_FILENO) close(fileno(capture));
                 if (ptrace(PTRACE_TRACEME,0,nullptr,nullptr) == -1) _exit(126);
                 execl(arg.c_str(), arg.c_str(), static_cast<char*>(nullptr)); _exit(127);
             }

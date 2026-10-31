@@ -4,7 +4,7 @@ let snapshot = {state: 'idle'}, previous = {}, busy = false, history = [], lastS
 function text(tag, value, cls) { const node = document.createElement(tag); node.textContent = value; if (cls) node.className = cls; return node; }
 function controls() {
   const stopped = snapshot.state === 'stopped';
-  ['continue', 'step'].forEach(id => el(id).disabled = busy || !stopped);
+  ['continue', 'step', 'source-step'].forEach(id => el(id).disabled = busy || !stopped);
   el('pause').disabled = busy || snapshot.state !== 'running';
   el('stop').disabled = busy || !['running','stopped'].includes(snapshot.state);
   el('launch').disabled = busy;
@@ -39,7 +39,7 @@ function render(data) {
   const bps=el('breakpoints'); bps.replaceChildren(); el('bpCount').textContent=(data.breakpoints || []).length;
   for(const address of data.breakpoints || []) { const row=text('div','','bp'); const remove=text('button','×'); remove.setAttribute('aria-label','Remove breakpoint '+address); remove.onclick=()=>command('delete',address); row.append(text('span',address),remove); bps.append(row); }
   const symbols=el('symbols'); symbols.replaceChildren();
-  for(const symbol of data.symbols || []) { const button=text('button',symbol.name); button.disabled=data.state!=='stopped'; button.onclick=()=>command('break',symbol.name); symbols.append(button); }
+  for(const symbol of data.symbols || []) { const button=text('button',symbol.label || symbol.name); button.disabled=data.state!=='stopped'; button.onclick=()=>command('break',symbol.name); symbols.append(button); }
   const stack=el('stack'); stack.replaceChildren(); el('frameCount').textContent=(data.stack || []).length+' FRAMES';
   for(const [i,frame] of (data.stack || []).entries()) { const row=text('div',`#${i}  ${frame.name}`, 'frame'); row.append(text('small',frame.address+' · '+frame.location)); stack.append(row); }
   const memory=el('memory'); memory.replaceChildren();
@@ -65,9 +65,18 @@ function render(data) {
   controls();
 }
 el('launch').onclick=()=>command('launch',el('target').value);
-['continue','step','pause','stop'].forEach(id=>el(id).onclick=()=>command(id));
+['continue','step','source-step','pause','stop'].forEach(id=>el(id).onclick=()=>command(id));
 el('breakForm').onsubmit=event=>{event.preventDefault(); command('break',el('address').value.trim());};
 el('export').onclick=()=>{ const url=URL.createObjectURL(new Blob([JSON.stringify({format:'stillpoint-stops-v1',history},null,2)],{type:'application/json'})); const a=document.createElement('a'); a.href=url; a.download='stillpoint-stops.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); };
 document.addEventListener('keydown',event=>{if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return; if(event.key==='F8'||event.key==='F10'){event.preventDefault();if(snapshot.state==='stopped')command(event.key==='F8'?'continue':'step');}});
 setInterval(async()=>{if(busy || snapshot.state!=='running')return; busy=true; try {const response=await fetch('/api/status');if(response.ok)render(await response.json());}catch(error){el('error').textContent=error.message;el('error').hidden=false;}finally{busy=false;controls();}},750);
 controls();
+fetch('/api/status').then(response=>response.json()).then(render).catch(error=>{
+  el('error').textContent=error.message; el('error').hidden=false;
+});
+fetch('/api/targets').then(response=>response.json()).then(data=>{
+  const labels={ledger:'ledger · successful settlement',crash:'crash · invalid pointer',loop:'loop · pause and resume'};
+  el('target').replaceChildren();
+  for(const target of data.targets) { const option=text('option',labels[target] || target); option.value=target; el('target').append(option); }
+  if(data.targets.includes('ledger')) el('target').value='ledger';
+}).catch(()=>{});

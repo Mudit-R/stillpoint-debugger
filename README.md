@@ -4,6 +4,8 @@ A native Linux debugger with a local execution workbench. The C++ engine control
 real child processes through `ptrace`; the browser displays observed process
 state. GDB and LLDB are not used by the engine.
 
+![Stillpoint paused at a real source location](docs/workbench.jpg)
+
 ## Run
 
 Requires an x86-64 Linux host, or Docker Desktop with Linux containers on Windows.
@@ -28,9 +30,10 @@ python3 workbench/server.py
 
 Build your own program into `build/` using
 `g++ -g -O0 -fno-omit-frame-pointer -fno-pie -no-pie your.cpp -o build/your-program`.
-The engine accepts an executable path through its CLI protocol; the workbench's
-launch menu contains the three included fixtures. Programs are launched without
-arguments in this version.
+The engine accepts an executable path through its CLI protocol; reload the workbench
+to discover ELF executables in `build/`. Programs are launched without
+arguments in this version; target stdin is disconnected from the debugger command
+channel and reads EOF. Interactive terminal input is not supported yet.
 
 ## Implemented
 
@@ -41,6 +44,8 @@ arguments in this version.
 - Twelve general/control register values and changed-value highlighting.
 - Frame-pointer stack walking and eight words at the stack pointer.
 - Source location and demangled stack names through GNU `addr2line`.
+- Bounded source-line stepping in the workbench (step into, up to 128 instructions
+  or two seconds; returns earlier at signals and breakpoints).
 - Captured program output (up to 64 KiB), local stop history and JSON export.
 - Real-process integration tests and Linux CI.
 
@@ -53,7 +58,7 @@ can produce incomplete frames. Stripped executables lack function names. Shared
 library source resolution is not implemented. Source display in the workbench
 is limited to the included `examples/` tree. The ELF parser is ours; DWARF line
 mapping and name demangling are delegated to binutils. There is no DWARF local
-variable evaluation, source-level next/step-out, attach, watchpoint, reverse
+variable evaluation, source-level step-over/step-out, attach, watchpoint, reverse
 execution, multi-client session isolation, or AI diagnosis yet.
 
 The workbench controls **one shared local session**. It executes native code;
@@ -72,7 +77,7 @@ for state transitions, signal handling, and planned extensions.
 
 ## Next milestones
 
-1. Source stepping and source-line breakpoints; arbitrary project source roots.
+1. Source-line breakpoints and step-over/step-out; arbitrary project source roots.
 2. DWARF local variable inspection with explicit unsupported-expression errors.
 3. Thread lifecycle and thread-specific stop semantics.
 4. Optional AI investigator that cites captured stops and runs bounded inspection

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,7 +13,6 @@ BUILD = ROOT / 'build'
 LOCK = threading.Lock()
 ENGINE = None
 BINARY = None
-HISTORY = []
 
 
 def request_engine(command):
@@ -26,6 +26,11 @@ def request_engine(command):
     if not line:
         raise RuntimeError('Debugger engine exited')
     snapshot = json.loads(line)
+    if snapshot.get('symbols'):
+        names = [item['name'] for item in snapshot['symbols']]
+        result = subprocess.run(['c++filt'], input='\n'.join(names), capture_output=True, text=True, timeout=3)
+        for item, label in zip(snapshot['symbols'], result.stdout.splitlines()):
+            item['label'] = label
     if BINARY and snapshot.get('state') == 'stopped':
         addresses = snapshot.get('frames', [])
         result = subprocess.run(['addr2line', '-f', '-C', '-e', str(BINARY), *addresses],
@@ -78,6 +83,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, request_engine('poll'))
                 except Exception as error:
                     return self.send(500, {'error': str(error)})
+        if self.path == '/api/targets':
+            targets = []
+            for path in sorted(BUILD.iterdir()):
+                if path.name != 'stillpoint' and path.is_file() and path.resolve().is_relative_to(BUILD.resolve()):
+                    with path.open('rb') as source:
+                        if source.read(4) == b'\x7fELF':
+                            targets.append(path.name)
+            return self.send(200, {'targets': targets})
         self.send(404, {'error': 'Not found'})
 
     def do_POST(self):
@@ -91,9 +104,11 @@ class Handler(BaseHTTPRequestHandler):
             if size < 1 or size > 4096:
                 raise ValueError('Invalid request size')
             body = json.loads(self.rfile.read(size))
+            if not isinstance(body, dict):
+                raise ValueError('Request must be a JSON object')
             command = body.get('command', '')
             argument = body.get('argument', '')
-            if command not in ('launch', 'break', 'delete', 'continue', 'step', 'pause', 'stop'):
+            if command not in ('launch', 'break', 'delete', 'continue', 'step', 'source-step', 'pause', 'stop'):
                 raise ValueError('Unsupported command')
             if not isinstance(argument, str) or '\n' in argument or '\r' in argument:
                 raise ValueError('Invalid argument')
@@ -104,7 +119,22 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError('Choose an executable from the build directory')
                     BINARY = candidate
                     argument = str(candidate)
-                snapshot = request_engine(command + (' ' + argument if argument else ''))
+                if command == 'source-step':
+                    snapshot = request_engine('status')
+                    if snapshot.get('state') != 'stopped':
+                        raise ValueError('The process must be stopped first')
+                    initial = snapshot.get('source', {})
+                    deadline = time.monotonic() + 2
+                    for _ in range(128):
+                        snapshot = request_engine('step')
+                        if snapshot.get('state') != 'stopped' or snapshot.get('error'):
+                            break
+                        if snapshot.get('reason') != 'Instruction step':
+                            break
+                        if snapshot.get('source') != initial or time.monotonic() >= deadline:
+                            break
+                else:
+                    snapshot = request_engine(command + (' ' + argument if argument else ''))
                 return self.send(200, snapshot)
         except (ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
             self.send(400, {'error': str(error)})

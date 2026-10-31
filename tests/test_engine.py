@@ -1,5 +1,6 @@
 """Integration tests: real ptrace children, no mocked process execution."""
 import json
+import os
 from pathlib import Path
 import select
 import subprocess
@@ -83,6 +84,12 @@ class EngineTests(unittest.TestCase):
         self.launch()
         self.assertTrue(self.command('break not_a_symbol')['error'])
         self.assertEqual(self.command('status')['state'], 'stopped')
+
+    def test_end_kills_and_reaps_tracee(self):
+        pid = self.launch()['pid']
+        self.command('stop')
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
 
     def test_reject_non_elf(self):
         result = self.command('launch ' + str(ROOT / 'examples/ledger.cpp'))
