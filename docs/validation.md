@@ -23,12 +23,18 @@ to 22 passing tests. These cover executable-line resolution, an explicit error
 for an unmapped line, and arguments containing spaces and shell syntax passed
 literally to the target. The debugger does not spawn a shell for target launch.
 
-The incident-handoff extension raises the suite to 24 tests. A four-fixture
-corpus (null read, null write, protected-page access, and integer divide by zero)
-produces four downloadable Markdown reports with kernel signal codes, source,
-stack, registers, instructions, and output. All four signatures are distinct;
-repeating the null-read fixture preserves its signature, supporting duplicate
-incident grouping.
+The incident-handoff extension and PIE/ASLR support raise the suite to 26 tests.
+A five-target corpus (null read, PIE null read, null write, protected-page access,
+and integer divide by zero) produces five downloadable Markdown reports with
+kernel signal codes, source, stack, registers, instructions, output, and ELF build
+IDs. The PIE fixture's source breakpoint and runtime disassembly resolve at its
+relocated addresses. All five signatures are distinct; repeating the same null
+read preserves its signature, while changing the build ID changes the signature.
+
+After rebuilding the local Compose service, a live API check launched the PIE
+fixture under a non-zero ASLR load bias, stopped at `crash.cpp:10`, captured its
+`SIGSEGV` at `crash.cpp:4`, and downloaded a handoff report containing that
+build's ELF ID and RIP instructions.
 
 Browser QA exercised launch, adding `main`, continuing to the breakpoint,
 instruction stepping with RIP change, and stepping from ledger.cpp line 14 to

@@ -80,6 +80,8 @@ class Debugger {
     std::string state = "idle", reason = "No process", output;
     std::map<Address, Breakpoint> breaks;
     std::map<std::string, Address> symbols;
+    bool pie = false;
+    Address load_bias = 0, pie_page_vaddr = 0, pie_page_offset = 0;
     Address pending = 0;
     Address inspect_address = 0;
     int pending_signal = 0;
@@ -123,8 +125,29 @@ class Debugger {
         };
         Elf64_Ehdr header{}; std::memcpy(&header, bytes.data(), sizeof(header));
         if (std::memcmp(header.e_ident, ELFMAG, SELFMAG) || header.e_ident[EI_CLASS] != ELFCLASS64 ||
-            header.e_ident[EI_DATA] != ELFDATA2LSB || header.e_machine != EM_X86_64 || header.e_type != ET_EXEC)
-            throw std::runtime_error("Use a Linux x86-64 non-PIE executable (-g -O0 -fno-omit-frame-pointer -no-pie)");
+            header.e_ident[EI_DATA] != ELFDATA2LSB || header.e_machine != EM_X86_64 ||
+            (header.e_type != ET_EXEC && header.e_type != ET_DYN))
+            throw std::runtime_error("Use a Linux x86-64 ET_EXEC or PIE executable with an ELF symbol table");
+        pie = header.e_type == ET_DYN; load_bias = 0; pie_page_vaddr = 0; pie_page_offset = 0;
+        if (pie) {
+            if (header.e_phentsize != sizeof(Elf64_Phdr) || !header.e_phnum)
+                throw std::runtime_error("Unsupported PIE program header table");
+            range(header.e_phoff, Address(header.e_phnum) * sizeof(Elf64_Phdr));
+            const Address page = static_cast<Address>(sysconf(_SC_PAGESIZE));
+            if (!page || (page & (page - 1))) throw std::runtime_error("Unsupported system page size");
+            bool found_load = false;
+            for (Address i = 0; i < header.e_phnum; ++i) {
+                Elf64_Phdr segment{};
+                std::memcpy(&segment, bytes.data() + header.e_phoff + i * sizeof(Elf64_Phdr), sizeof(segment));
+                if (segment.p_type != PT_LOAD) continue;
+                const Address page_vaddr = segment.p_vaddr & ~(page - 1);
+                const Address page_offset = segment.p_offset & ~(page - 1);
+                if (!found_load || page_offset < pie_page_offset) {
+                    pie_page_vaddr = page_vaddr; pie_page_offset = page_offset; found_load = true;
+                }
+            }
+            if (!found_load) throw std::runtime_error("PIE executable has no loadable segment");
+        }
         if (header.e_shentsize != sizeof(Elf64_Shdr)) throw std::runtime_error("Unsupported ELF section table");
         range(header.e_shoff, Address(header.e_shnum)*sizeof(Elf64_Shdr));
         std::vector<Elf64_Shdr> sections(header.e_shnum);
@@ -144,6 +167,30 @@ class Debugger {
                 symbols[name] = sym.st_value;
             }
         }
+    }
+    void locate_pie(const std::string& path) {
+        if (!pie) return;
+        std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
+        if (!maps) throw std::runtime_error("Cannot read process maps to resolve PIE load bias");
+        std::string line;
+        while (std::getline(maps, line)) {
+            std::istringstream fields(line);
+            std::string range, permissions, offset, device, mapped_path;
+            unsigned long long inode = 0;
+            if (!(fields >> range >> permissions >> offset >> device >> inode)) continue;
+            std::getline(fields, mapped_path);
+            auto first = mapped_path.find_first_not_of(' ');
+            if (first == std::string::npos) continue;
+            mapped_path.erase(0, first);
+            if (mapped_path != path && mapped_path != path + " (deleted)") continue;
+            auto dash = range.find('-');
+            if (dash == std::string::npos || std::stoull(offset, nullptr, 16) != pie_page_offset) continue;
+            Address start = std::stoull(range.substr(0, dash), nullptr, 16);
+            if (start < pie_page_vaddr) continue;
+            load_bias = start - pie_page_vaddr;
+            return;
+        }
+        throw std::runtime_error("Cannot find the PIE executable mapping in process maps");
     }
     bool wait_event(bool bounded = true) {
         auto deadline = std::chrono::steady_clock::now()+std::chrono::milliseconds(bounded ? 700 : 0);
@@ -208,10 +255,10 @@ public:
     void stop() {
         if (pid > 0) { kill(pid, SIGKILL); int status; while (waitpid(pid, &status, 0)<0 && errno==EINTR) {} }
         pid=-1; state="idle"; reason="Session ended"; pending=0; pending_signal=0; inspect_address=0; breaks.clear();
-        stop_signal=0; stop_signal_code=0; signal_address=0; has_signal_address=false;
+        stop_signal=0; stop_signal_code=0; signal_address=0; has_signal_address=false; load_bias=0; pie=false;
     }
     Address resolve(const std::string& value) {
-        if (symbols.contains(value)) return symbols[value];
+        if (symbols.contains(value)) return symbols[value] + load_bias;
         size_t consumed=0; Address addr=std::stoull(value, &consumed, 0);
         if (consumed != value.size()) throw std::runtime_error("Unknown symbol or address");
         return addr;
@@ -248,6 +295,7 @@ public:
             state="running"; wait_event();
             if (state != "stopped") throw std::runtime_error("Executable did not stop at exec");
             trace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL);
+            locate_pie(arguments.front());
             pending_signal=0; stop_signal=0; stop_signal_code=0; signal_address=0; has_signal_address=false;
             reason="Executable loaded";
         } else if (cmd=="break") {
@@ -273,6 +321,7 @@ public:
     std::string snapshot(const std::string& error="") {
         collect_output(); std::ostringstream s;
         s << "{\"state\":" << quote(state) << ",\"reason\":" << quote(reason) << ",\"error\":" << quote(error)
+          << ",\"load_bias\":" << quote(hex(load_bias))
           << ",\"signal_number\":" << stop_signal << ",\"signal_name\":" << quote(signal_label(stop_signal))
           << ",\"signal_code\":" << stop_signal_code << ",\"signal_code_name\":" << quote(signal_code_label(stop_signal,stop_signal_code))
           << ",\"signal_address\":" << quote(has_signal_address ? hex(signal_address) : "")
@@ -287,7 +336,7 @@ public:
         s << "},\"breakpoints\":["; bool first=true;
         for (auto [addr,bp]:breaks) { if(!first)s<<','; first=false; s << quote(hex(addr)); (void)bp; }
         s << "],\"symbols\":["; first=true;
-        for (auto [name,addr]:symbols) { if(!first)s<<','; first=false; s << "{\"name\":" << quote(name) << ",\"address\":" << quote(hex(addr)) << '}'; }
+        for (auto [name,addr]:symbols) { if(!first)s<<','; first=false; s << "{\"name\":" << quote(name) << ",\"address\":" << quote(hex(addr+load_bias)) << '}'; }
         s << "],\"frames\":[";
         if (state=="stopped") {
             auto r=regs(); Address pc=r.rip, frame=r.rbp;

@@ -94,6 +94,20 @@ class EngineTests(unittest.TestCase):
                 if target == 'bounds':
                     self.assertNotEqual(result['signal_address'], '0x0')
 
+    def test_pie_load_bias_relocates_symbols_and_software_breakpoints(self):
+        result = self.launch('pie_crash')
+        bias = int(result['load_bias'], 16)
+        self.assertGreater(bias, 0)
+        main = next(int(symbol['address'], 16) for symbol in result['symbols'] if symbol['name'] == 'main')
+        self.assertGreater(main, bias)
+        self.command('break main')
+        result = self.command('continue')
+        self.assertEqual(result['registers']['rip'], hex(main))
+        self.assertIn('Breakpoint', result['reason'])
+        result = self.command('continue')
+        self.assertEqual(result['signal_name'], 'SIGSEGV')
+        self.assertEqual(result['signal_address'], '0x0')
+
     def test_running_process_can_be_paused(self):
         self.launch('loop')
         result = self.command('continue')

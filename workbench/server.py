@@ -19,9 +19,21 @@ BUILD = ROOT / 'build'
 LOCK = threading.Lock()
 ENGINE = None
 BINARY = None
+LOAD_BIAS = 0
 AI_LOCK = threading.Lock()
 DISASSEMBLY = {}
 LINE_TABLE = {}
+BUILD_IDS = {}
+
+
+def elf_build_id(binary):
+    key = (str(binary), binary.stat().st_mtime_ns)
+    if key not in BUILD_IDS:
+        result = subprocess.run(['readelf', '-n', str(binary)], capture_output=True, text=True, timeout=3)
+        match = re.search(r'Build ID:\s*([0-9a-fA-F]+)', result.stdout)
+        BUILD_IDS.clear()
+        BUILD_IDS[key] = match.group(1).lower() if match else ''
+    return BUILD_IDS[key]
 
 
 def source_breakpoint(location):
@@ -45,11 +57,11 @@ def source_breakpoint(location):
     address = LINE_TABLE[key].get(Path(name).name + ':' + str(int(number)))
     if not address:
         raise ValueError('No executable instruction maps to that source line')
-    return address
+    return hex(int(address, 16) + LOAD_BIAS)
 
 
 def request_engine(command):
-    global ENGINE
+    global ENGINE, LOAD_BIAS
     if ENGINE is None or ENGINE.poll() is not None:
         ENGINE = subprocess.Popen([str(BUILD / 'stillpoint')], stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
@@ -59,6 +71,7 @@ def request_engine(command):
     if not line:
         raise RuntimeError('Debugger engine exited')
     snapshot = json.loads(line)
+    LOAD_BIAS = int(snapshot.get('load_bias', '0x0'), 16)
     if snapshot.get('symbols'):
         names = [item['name'] for item in snapshot['symbols']]
         result = subprocess.run(['c++filt'], input='\n'.join(names), capture_output=True, text=True, timeout=3)
@@ -78,11 +91,14 @@ def request_engine(command):
                         pass
             DISASSEMBLY.clear()
             DISASSEMBLY[key] = instructions
-        pc = int(snapshot['registers']['rip'],16)
+        bias = int(snapshot.get('load_bias', '0x0'), 16)
+        pc = int(snapshot['registers']['rip'],16) - bias
         instructions = DISASSEMBLY[key]
-        snapshot['disassembly'] = [line for address,line in instructions if address>=pc][:12] if any(address==pc for address,_ in instructions) else []
+        selected = [item for item in instructions if item[0] >= pc][:12] if any(address==pc for address,_ in instructions) else []
+        snapshot['disassembly'] = [hex(address + bias)[2:] + ':' + line.split(':',1)[1] for address,line in selected]
         addresses = snapshot.get('frames', [])
-        result = subprocess.run(['addr2line', '-f', '-C', '-e', str(BINARY), *addresses],
+        static_addresses = [hex(int(address,16)-bias) for address in addresses]
+        result = subprocess.run(['addr2line', '-f', '-C', '-e', str(BINARY), *static_addresses],
                                 capture_output=True, text=True, timeout=3)
         lines = result.stdout.splitlines()
         snapshot['stack'] = []
@@ -98,6 +114,7 @@ def request_engine(command):
                 snapshot['source'] = {'name': source.name, 'line': int(number) if number.isdigit() else 0,
                                       'text': source.read_text()}
     snapshot['binary'] = BINARY.name if BINARY else None
+    snapshot['build_id'] = elf_build_id(BINARY) if BINARY else ''
     snapshot['incident'] = incident_for(snapshot)
     return snapshot
 
@@ -162,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(404, {'error': 'Not found'})
 
     def do_POST(self):
-        global BINARY
+        global BINARY, LOAD_BIAS
         if not self.valid_host() or self.headers.get('Origin') != 'http://' + self.headers.get('Host', ''):
             return self.send(403, {'error': 'Invalid origin'})
         if self.path not in ('/api/command', '/api/investigate'):
@@ -209,6 +226,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError('Use at most 16 arguments without control characters')
                     argument += ''.join('\t'+value for value in parsed)
                     BINARY = candidate
+                    LOAD_BIAS = 0
                 if command in ('break','delete') and ':' in argument:
                     argument = source_breakpoint(argument)
                 if command == 'source-step':

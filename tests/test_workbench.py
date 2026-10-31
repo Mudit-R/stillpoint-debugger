@@ -64,6 +64,18 @@ class WorkbenchTests(unittest.TestCase):
         self.command('delete','ledger.cpp:17')
         self.assertIn('code 0',self.command('continue')['reason'])
 
+    def test_pie_source_mapping_and_disassembly_use_runtime_addresses(self):
+        launched = self.command('launch', 'pie_crash')
+        self.assertGreater(int(launched['load_bias'], 16), 0)
+        self.command('break', 'crash.cpp:10')
+        stopped = self.command('continue')
+        self.assertEqual(stopped['source']['line'], 10)
+        self.assertEqual(stopped['registers']['rip'], stopped['breakpoints'][0])
+        self.assertIn(stopped['registers']['rip'][2:], stopped['disassembly'][0])
+        crashed = self.command('continue')
+        self.assertEqual(crashed['source']['line'], 4)
+        self.assertEqual(crashed['signal_name'], 'SIGSEGV')
+
     def test_unmapped_source_line_reports_error(self):
         self.command('launch','ledger')
         with self.assertRaises(urllib.error.HTTPError) as error:
@@ -82,6 +94,7 @@ class WorkbenchTests(unittest.TestCase):
         self.assertIn('Download handoff report', page)
         cases = {
             'crash': ('SIGSEGV', 'SEGV_MAPERR'),
+            'pie_crash': ('SIGSEGV', 'SEGV_MAPERR'),
             'crash_write': ('SIGSEGV', 'SEGV_MAPERR'),
             'bounds': ('SIGSEGV', 'SEGV_ACCERR'),
             'divide': ('SIGFPE', 'FPE_INTDIV'),
@@ -93,6 +106,7 @@ class WorkbenchTests(unittest.TestCase):
                 stopped = self.command('continue')
                 self.assertEqual(stopped['signal_name'], signal_name)
                 self.assertEqual(stopped['signal_code_name'], code_name)
+                self.assertTrue(stopped['build_id'])
                 self.assertIsNotNone(stopped['incident'])
                 signatures[target] = stopped['incident']['signature']
                 with urllib.request.urlopen(self.origin + '/api/incident-report.md', timeout=5) as response:
@@ -102,6 +116,10 @@ class WorkbenchTests(unittest.TestCase):
                 for expected in (signatures[target], signal_name, code_name, '## Stack', '## Registers',
                                  '## Instructions at RIP', '## Source context', '## Captured output'):
                     self.assertIn(expected, report)
+                self.assertIn(stopped['build_id'], report)
+                if target == 'crash':
+                    rebuilt = dict(stopped, build_id='different-elf-build')
+                    self.assertNotEqual(bridge.incident_for(rebuilt)['signature'], signatures[target])
         self.assertEqual(len(set(signatures.values())), len(cases))
         self.command('launch', 'crash')
         repeated = self.command('continue')

@@ -28,8 +28,8 @@ cmake --build build -j2
 python3 workbench/server.py
 ```
 
-Build your own program into `build/` using
-`g++ -g -O0 -fno-omit-frame-pointer -fno-pie -no-pie your.cpp -o build/your-program`.
+Build a position-independent program into `build/` using
+`g++ -g -O0 -fno-omit-frame-pointer -fPIE -pie -Wl,--build-id=sha1 your.cpp -o build/your-program`.
 The engine accepts an executable path through its CLI protocol; reload the workbench
 to discover ELF executables in `build/`. The arguments field accepts quoted
 arguments (`--name "sample run"`) without invoking a shell. Target stdin is disconnected from the debugger command
@@ -43,6 +43,8 @@ channel and reads EOF. Interactive terminal input is not supported yet.
 - Source-line breakpoints through the gutter or `ledger.cpp:17` (binutils decoded
   line tables); unmapped lines produce an explicit error.
 - ELF64 function-symbol parsing with bounds validation.
+- PIE and ASLR relocation: resolves runtime load bias from the traced process maps
+  and applies it to symbols, source breakpoints, stack symbolication and disassembly.
 - Twelve general/control register values and changed-value highlighting.
 - Frame-pointer stack walking and an eight-word memory inspector accepting
   `rsp`, `rip`, a function symbol, or an explicit address.
@@ -57,10 +59,11 @@ channel and reads EOF. Interactive terminal input is not supported yet.
 - Local AI investigation with one leading hypothesis, up to three captured
   evidence references, stale-stop detection, and citation validation.
 
-The incident examples cover null reads, null writes, protected-page access and
-integer divide-by-zero. All four produce issue-ready reports; regression checks
-verify distinct signatures across the cases and a repeatable signature for a
-rerun, so teams can group duplicate reports during triage.
+The incident corpus covers null reads, null writes, protected-page access and
+integer divide-by-zero, including a PIE/ASLR build. All five tested targets
+produce issue-ready reports. ELF build IDs distinguish reports from different
+builds; regression checks also confirm a rerun of the same build keeps its
+signature, so teams can group duplicate reports without merging separate builds.
 
 ## Local AI investigator
 
@@ -99,8 +102,8 @@ are not persisted by the server. The workbench marks reports from earlier stops.
 
 ## Boundaries
 
-This is an early, intentionally scoped debugger: **Linux x86-64, non-PIE,
-single-process, single-threaded, unoptimized executables**. Frame pointers must
+This is an early, intentionally scoped debugger: **Linux x86-64 ET_EXEC and PIE
+ET_DYN, single-process, single-threaded, unoptimized executables**. Frame pointers must
 be retained for useful caller frames; a stop inside a function prologue/epilogue
 can produce incomplete frames. Stripped executables lack function names. Shared
 library source resolution is not implemented. Source display in the workbench

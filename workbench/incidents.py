@@ -15,11 +15,13 @@ def incident_for(snapshot):
     instruction = instructions[0] if instructions else ''
     instruction = instruction.split(':', 1)[-1].strip()
     instruction = re.sub(r'\b(?:0x)?[0-9a-fA-F]{6,16}\b', '<address>', instruction)
-    fields = (snapshot.get('binary') or '', signal_name,
+    build_id = snapshot.get('build_id') or ''
+    fields = (snapshot.get('binary') or '', build_id, signal_name,
               snapshot.get('signal_code_name') or '', location, instruction)
     signature = hashlib.sha256('\0'.join(fields).encode()).hexdigest()[:12].upper()
     return {
         'signature': 'SP-' + signature,
+        'build_id': build_id,
         'signal_name': signal_name,
         'signal_number': snapshot.get('signal_number', 0),
         'signal_code_name': snapshot.get('signal_code_name', ''),
@@ -46,6 +48,8 @@ def incident_report(snapshot):
         f"- Target: `{snapshot.get('binary') or 'unknown'}`",
         f"- Signal: `{incident['signal_name']}` ({incident['signal_number']})",
     ]
+    if incident.get('build_id'):
+        rows.insert(4, f"- ELF build ID: `{incident['build_id']}`")
     if incident.get('signal_code_name'):
         rows.append(f"- Signal code: `{incident['signal_code_name']}`")
     if incident.get('signal_address'):

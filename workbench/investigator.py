@@ -27,6 +27,8 @@ def evidence_for(snapshot):
     def add(label, value):
         facts.append({'id': f'E{len(facts)+1}', 'label': label, 'value': str(value)[:2000]})
     add('Stop reason', snapshot.get('reason'))
+    if snapshot.get('build_id'):
+        add('ELF build ID', snapshot['build_id'])
     if snapshot.get('signal_name'):
         details = snapshot['signal_name']
         if snapshot.get('signal_code_name'):
