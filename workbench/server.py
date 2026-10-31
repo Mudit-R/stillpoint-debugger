@@ -6,13 +6,18 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'workbench'))
+from investigator import configuration, investigate
 BUILD = ROOT / 'build'
 LOCK = threading.Lock()
 ENGINE = None
 BINARY = None
+AI_LOCK = threading.Lock()
+DISASSEMBLY = {}
 
 
 def request_engine(command):
@@ -32,6 +37,22 @@ def request_engine(command):
         for item, label in zip(snapshot['symbols'], result.stdout.splitlines()):
             item['label'] = label
     if BINARY and snapshot.get('state') == 'stopped':
+        key = (str(BINARY), BINARY.stat().st_mtime_ns)
+        if key not in DISASSEMBLY:
+            result = subprocess.run(['objdump', '-d', '-M', 'intel', str(BINARY)], capture_output=True, text=True, timeout=3)
+            instructions = []
+            for line in result.stdout.splitlines():
+                address, separator, _ = line.strip().partition(':')
+                if separator:
+                    try:
+                        instructions.append((int(address,16), line.strip()))
+                    except ValueError:
+                        pass
+            DISASSEMBLY.clear()
+            DISASSEMBLY[key] = instructions
+        pc = int(snapshot['registers']['rip'],16)
+        instructions = DISASSEMBLY[key]
+        snapshot['disassembly'] = [line for address,line in instructions if address>=pc][:12] if any(address==pc for address,_ in instructions) else []
         addresses = snapshot.get('frames', [])
         result = subprocess.run(['addr2line', '-f', '-C', '-e', str(BINARY), *addresses],
                                 capture_output=True, text=True, timeout=3)
@@ -73,9 +94,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():
             return self.send(403, {'error': 'Use localhost'})
-        if self.path in ('/', '/app.js', '/style.css'):
+        if self.path in ('/', '/app.js', '/style.css', '/investigator.css'):
             name = 'index.html' if self.path == '/' else self.path[1:]
-            mime = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript', 'style.css': 'text/css'}[name]
+            mime = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript', 'style.css': 'text/css', 'investigator.css':'text/css'}[name]
             return self.send(200, (ROOT / 'workbench' / name).read_bytes(), mime)
         if self.path == '/api/status':
             with LOCK:
@@ -83,6 +104,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, request_engine('poll'))
                 except Exception as error:
                     return self.send(500, {'error': str(error)})
+        if self.path == '/api/ai/config':
+            config = configuration()
+            return self.send(200, {'configured':bool(config['model']), 'model':config['model'], 'provider':'Local Ollama'})
         if self.path == '/api/targets':
             targets = []
             for path in sorted(BUILD.iterdir()):
@@ -97,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
         global BINARY
         if not self.valid_host() or self.headers.get('Origin') != 'http://' + self.headers.get('Host', ''):
             return self.send(403, {'error': 'Invalid origin'})
-        if self.path != '/api/command':
+        if self.path not in ('/api/command', '/api/investigate'):
             return self.send(404, {'error': 'Not found'})
         try:
             size = int(self.headers.get('Content-Length', '0'))
@@ -106,9 +130,24 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if not isinstance(body, dict):
                 raise ValueError('Request must be a JSON object')
+            if self.path == '/api/investigate':
+                question = body.get('question','Explain this stop and suggest what to inspect next.')
+                if not isinstance(question,str) or not question.strip() or len(question)>1000:
+                    raise ValueError('Question must contain 1 to 1000 characters')
+                if not AI_LOCK.acquire(blocking=False):
+                    return self.send(429, {'error':'An investigation is already running'})
+                try:
+                    with LOCK:
+                        captured = request_engine('status')
+                        if captured.get('state') != 'stopped':
+                            raise ValueError('Pause the process before requesting an investigation')
+                    report = investigate(captured, question)
+                    return self.send(200, report)
+                finally:
+                    AI_LOCK.release()
             command = body.get('command', '')
             argument = body.get('argument', '')
-            if command not in ('launch', 'break', 'delete', 'continue', 'step', 'source-step', 'pause', 'stop'):
+            if command not in ('launch', 'break', 'delete', 'memory', 'continue', 'step', 'source-step', 'pause', 'stop'):
                 raise ValueError('Unsupported command')
             if not isinstance(argument, str) or '\n' in argument or '\r' in argument:
                 raise ValueError('Invalid argument')

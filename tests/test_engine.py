@@ -91,6 +91,26 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
+    def test_adjacent_breakpoints_preserve_other_bytes(self):
+        result = self.launch()
+        addr = int(next(s['address'] for s in result['symbols'] if s['name']=='main'),16)
+        original = int(self.command('memory main')['memory'][0]['value'],16)
+        self.command('break main')
+        self.command('break ' + hex(addr+1))
+        patched = int(self.command('memory main')['memory'][0]['value'],16)
+        self.assertEqual(patched & 0xffff, 0xcccc)
+        self.command('delete main')
+        restored = int(self.command('memory main')['memory'][0]['value'],16)
+        self.assertEqual(restored & 0xff, original & 0xff)
+        self.assertEqual(restored & 0xff00, 0xcc00)
+        self.command('delete ' + hex(addr+1))
+        self.assertEqual(int(self.command('memory main')['memory'][0]['value'],16), original)
+
+    def test_invalid_memory_read_preserves_session(self):
+        self.launch()
+        self.assertTrue(self.command('memory 0x1')['error'])
+        self.assertEqual(self.command('memory rsp')['state'], 'stopped')
+
     def test_reject_non_elf(self):
         result = self.command('launch ' + str(ROOT / 'examples/ledger.cpp'))
         self.assertTrue(result['error'])

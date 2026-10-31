@@ -44,6 +44,7 @@ class Debugger {
     std::map<Address, Breakpoint> breaks;
     std::map<std::string, Address> symbols;
     Address pending = 0;
+    Address inspect_address = 0;
     int pending_signal = 0;
     FILE* capture = nullptr;
 
@@ -154,7 +155,7 @@ public:
     ~Debugger() { stop(); if (capture) fclose(capture); }
     void stop() {
         if (pid > 0) { kill(pid, SIGKILL); int status; while (waitpid(pid, &status, 0)<0 && errno==EINTR) {} }
-        pid=-1; state="idle"; reason="Session ended"; pending=0; pending_signal=0; breaks.clear();
+        pid=-1; state="idle"; reason="Session ended"; pending=0; pending_signal=0; inspect_address=0; breaks.clear();
     }
     Address resolve(const std::string& value) {
         if (symbols.contains(value)) return symbols[value];
@@ -191,6 +192,11 @@ public:
             if (!breaks.contains(addr)) throw std::runtime_error("Breakpoint does not exist");
             if (breaks[addr].enabled) byte(addr,breaks[addr].original);
             breaks.erase(addr); // pending still needs to step the restored instruction
+        } else if (cmd=="memory") {
+            require_stop();
+            auto addr = arg=="rsp" ? regs().rsp : arg=="rip" ? regs().rip : resolve(arg);
+            trace(PTRACE_PEEKDATA,pid,addr);
+            inspect_address = arg=="rsp" ? 0 : addr;
         } else if (cmd=="continue") resume(false);
         else if (cmd=="step") resume(true);
         else if (cmd=="pause") { if (state!="running") throw std::runtime_error("Process is not running"); kill(pid,SIGSTOP); wait_event(); }
@@ -231,11 +237,12 @@ public:
         s << "],\"memory\":[";
         if(state=="stopped") {
             auto r=regs();
+            Address start = inspect_address ? inspect_address : r.rsp;
             for(int i=0;i<8;i++) {
                 try {
-                    auto value=static_cast<Address>(trace(PTRACE_PEEKDATA,pid,r.rsp+i*8));
+                    auto value=static_cast<Address>(trace(PTRACE_PEEKDATA,pid,start+i*8));
                     if(i)s<<',';
-                    s << "{\"address\":" << quote(hex(r.rsp+i*8)) << ",\"value\":" << quote(hex(value)) << '}';
+                    s << "{\"address\":" << quote(hex(start+i*8)) << ",\"value\":" << quote(hex(value)) << '}';
                 } catch (...) { break; }
             }
         }

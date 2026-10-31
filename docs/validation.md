@@ -8,6 +8,16 @@ passed: seven original engine behaviors, explicit child reaping, source-line
 stepping through the HTTP bridge, foreign-origin rejection, and launch-path
 containment. Run `python3 -m unittest discover -s tests -v` inside the image.
 
+## Investigation and inspection extension
+
+The expanded suite passes 19 tests. New real-engine checks cover arbitrary
+memory inspection, invalid-address recovery, and adjacent breakpoint byte
+preservation. The HTTP bridge also verifies disassembly at the current RIP.
+AI unit tests use a controlled model adapter response: they verify evidence
+construction, report parsing, citation rejection, missing configuration and
+external-endpoint rejection. These adapter tests do not establish model quality.
+Live model validation, when completed, is recorded separately below.
+
 Browser QA exercised launch, adding `main`, continuing to the breakpoint,
 instruction stepping with RIP change, and stepping from ledger.cpp line 14 to
 line 15. The screenshot in this directory shows the observed session.

@@ -41,6 +41,8 @@ class WorkbenchTests(unittest.TestCase):
         self.command('break', 'main')
         result = self.command('continue')
         self.assertEqual(result['source']['name'], 'ledger.cpp')
+        self.assertTrue(result['disassembly'])
+        self.assertIn(result['registers']['rip'][2:], result['disassembly'][0])
         before = result['source']['line']
         result = self.command('source-step')
         self.assertNotEqual(result['source']['line'], before)

@@ -1,6 +1,7 @@
 'use strict';
 const el = id => document.getElementById(id);
 let snapshot = {state: 'idle'}, previous = {}, busy = false, history = [], lastStop = '';
+let aiConfigured=false, aiBusy=false, investigation=null;
 function text(tag, value, cls) { const node = document.createElement(tag); node.textContent = value; if (cls) node.className = cls; return node; }
 function controls() {
   const stopped = snapshot.state === 'stopped';
@@ -9,6 +10,8 @@ function controls() {
   el('stop').disabled = busy || !['running','stopped'].includes(snapshot.state);
   el('launch').disabled = busy;
   el('breakForm').querySelector('button').disabled = busy || !stopped;
+  el('analyze').disabled=busy || aiBusy || !stopped || !aiConfigured;
+  el('inspectMemory').disabled=busy || !stopped;
 }
 async function command(command, argument = '') {
   if (busy) return;
@@ -30,6 +33,10 @@ function render(data) {
   el('reason').textContent=data.reason || 'Launch an example to begin.';
   el('pid').textContent=data.pid > 0 ? 'PID '+data.pid : 'PID —';
   el('output').textContent=data.output || 'Waiting for program output…';
+  el('disassembly').textContent=(data.disassembly || []).join('\n') || 'No instruction mapping at this address.';
+  if(investigation && (investigation.binary!==data.binary || JSON.stringify(investigation.registers_at_capture)!==JSON.stringify(data.registers))) {
+    el('aiStatus').textContent='This report describes an earlier stop. Investigate again for the current state.';
+  }
   const registers=el('registers'); registers.replaceChildren();
   for (const [name,value] of Object.entries(data.registers || {})) {
     const row=text('div','', 'reg'+(previous[name] && previous[name]!==value ? ' changed':''));
@@ -67,6 +74,7 @@ function render(data) {
 el('launch').onclick=()=>command('launch',el('target').value);
 ['continue','step','source-step','pause','stop'].forEach(id=>el(id).onclick=()=>command(id));
 el('breakForm').onsubmit=event=>{event.preventDefault(); command('break',el('address').value.trim());};
+el('memoryForm').onsubmit=event=>{event.preventDefault(); command('memory',el('memoryAddress').value.trim());};
 el('export').onclick=()=>{ const url=URL.createObjectURL(new Blob([JSON.stringify({format:'stillpoint-stops-v1',history},null,2)],{type:'application/json'})); const a=document.createElement('a'); a.href=url; a.download='stillpoint-stops.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); };
 document.addEventListener('keydown',event=>{if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return; if(event.key==='F8'||event.key==='F10'){event.preventDefault();if(snapshot.state==='stopped')command(event.key==='F8'?'continue':'step');}});
 setInterval(async()=>{if(busy || snapshot.state!=='running')return; busy=true; try {const response=await fetch('/api/status');if(response.ok)render(await response.json());}catch(error){el('error').textContent=error.message;el('error').hidden=false;}finally{busy=false;controls();}},750);
@@ -80,3 +88,31 @@ fetch('/api/targets').then(response=>response.json()).then(data=>{
   for(const target of data.targets) { const option=text('option',labels[target] || target); option.value=target; el('target').append(option); }
   if(data.targets.includes('ledger')) el('target').value='ledger';
 }).catch(()=>{});
+fetch('/api/ai/config').then(response=>response.json()).then(data=>{
+  aiConfigured=data.configured;
+  el('aiModel').textContent=data.model || 'NOT CONFIGURED';
+  el('aiStatus').textContent=data.configured?'Configured · Investigate to request analysis from the local model.':'Set STILLPOINT_AI_MODEL and start local Ollama to enable investigation. See README.';
+  controls();
+}).catch(()=>{el('aiStatus').textContent='Could not read AI configuration.';});
+el('aiForm').onsubmit=async event=>{
+  event.preventDefault(); if(aiBusy || !aiConfigured)return;
+  aiBusy=true; controls(); el('aiStatus').textContent='Reading the captured stop with the local model…';
+  el('aiResult').replaceChildren();
+  try {
+    const response=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:el('aiQuestion').value})});
+    const report=await response.json();
+    if(!response.ok)throw new Error(report.error || 'Investigation failed');
+    investigation=report;
+    const result=el('aiResult');
+    result.append(text('p',report.summary,'ai-summary'));
+    for(const item of report.hypotheses) {
+      const card=text('article','','hypothesis'); card.append(text('span','HYPOTHESIS','section-label'),text('p',item.claim));
+      const evidence=text('details',''); evidence.append(text('summary','Evidence · '+item.evidence_ids.join(', ')));
+      for(const id of item.evidence_ids) {const fact=report.evidence.find(f=>f.id===id); if(fact)evidence.append(text('pre',`${fact.id} · ${fact.label}\n${fact.value}`));}
+      card.append(evidence,text('p','Next check: '+item.next_check,'next-check')); result.append(card);
+    }
+    el('aiStatus').textContent=`${report.model} · ${report.elapsed_seconds}s · Stop ${report.snapshot_id} · Hypotheses, not verified diagnoses`;
+    if(report.binary!==snapshot.binary || JSON.stringify(report.registers_at_capture)!==JSON.stringify(snapshot.registers))el('aiStatus').textContent+=' · Earlier stop';
+  }catch(error){el('aiStatus').textContent=error.message;}
+  finally{aiBusy=false;controls();}
+};

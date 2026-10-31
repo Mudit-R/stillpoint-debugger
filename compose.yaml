@@ -1,0 +1,17 @@
+services:
+  workbench:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:8765:8765"
+    cap_add:
+      - SYS_PTRACE
+    environment:
+      STILLPOINT_AI_URL: http://stillpoint-ai:11434
+      STILLPOINT_AI_MODEL: ${STILLPOINT_AI_MODEL:-qwen2.5-coder:1.5b}
+    depends_on:
+      - stillpoint-ai
+  stillpoint-ai:
+    image: ollama/ollama:latest
+    volumes:
+      - ./.local/ollama:/root/.ollama
