@@ -16,7 +16,7 @@ preservation. The HTTP bridge also verifies disassembly at the current RIP.
 AI unit tests use a controlled model adapter response: they verify evidence
 construction, report parsing, citation rejection, missing configuration and
 external-endpoint rejection. These adapter tests do not establish model quality.
-Live model validation, when completed, is recorded separately below.
+The live model check is recorded separately below.
 
 The source-breakpoint and argument-passing extension brings the automated suite
 to 22 passing tests. These cover executable-line resolution, an explicit error
@@ -30,3 +30,15 @@ line 15. The screenshot in this directory shows the observed session.
 This validates the included fixtures and supported platform. It does not establish
 correctness for arbitrary optimized binaries, threads, subprocess trees, stripped
 executables, shared library unwinding, or other architectures.
+
+## Live local AI check
+
+The Compose workbench ran Ollama 0.40.13 with `qwen2.5-coder:1.5b`. On the
+included crash fixture, the adapter returned one hypothesis in 4.75 seconds,
+labelled it unverified, and cited captured instructions and program output using
+known evidence IDs. The debugger independently showed SIGSEGV at
+`crash.cpp:4`, a zero RAX value, a load through `[rax]`, and the caller passing
+`nullptr` at line 10. The model's cited evidence did not include the source excerpt
+or RAX, so this run demonstrates the local integration and citation validation,
+not that the model independently identified every relevant fact. One fixture and
+one response do not establish model accuracy generally.

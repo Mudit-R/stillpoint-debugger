@@ -52,8 +52,8 @@ channel and reads EOF. Interactive terminal input is not supported yet.
 - Captured program output (up to 64 KiB), local stop history and JSON export.
 - Real-process integration tests and Linux CI.
 - Intel-syntax disassembly at the current instruction address via GNU objdump.
-- Local AI investigation with cited stop evidence, hypothesis labels, stale-stop
-  detection, and validation of evidence references.
+- Local AI investigation with one leading hypothesis, up to three captured
+  evidence references, stale-stop detection, and citation validation.
 
 ## Local AI investigator
 
@@ -79,10 +79,12 @@ For a native installation, run Ollama separately and set
 endpoint is `http://127.0.0.1:11434`. `STILLPOINT_AI_URL` accepts local endpoints
 only, including Docker's `host.docker.internal` and Compose's `stillpoint-ai`.
 
-Each report contains a capture fingerprint, evidence IDs, and proposed manual
-checks. Unknown evidence IDs cause rejection. A valid citation does **not** prove
-that the model's interpretation is correct. Nothing the model writes is executed;
-continue, stepping and breakpoint changes remain explicit user actions. Program
+Each report contains a capture fingerprint, evidence IDs, and one proposed manual
+check. The model receives a compact selection of stop evidence, including source
+context and registers used by the faulting instruction. Unknown or excessive
+evidence IDs cause rejection. A valid citation does **not** prove that the model's
+interpretation is correct. Nothing the model writes is executed; continue,
+stepping and breakpoint changes remain explicit user actions. Program
 output and source are untrusted inputs; prompt instructions and schema checks
 are defense in depth, not a guarantee against misleading model output. Reports
 are not persisted by the server. The workbench marks reports from earlier stops.

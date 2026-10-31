@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -26,21 +27,37 @@ def evidence_for(snapshot):
     def add(label, value):
         facts.append({'id': f'E{len(facts)+1}', 'label': label, 'value': str(value)[:2000]})
     add('Stop reason', snapshot.get('reason'))
-    for frame in snapshot.get('stack', [])[:4]:
+    for frame in [f for f in snapshot.get('stack', []) if f.get('name') not in ('??', '')][:2]:
         add('Stack frame', f"{frame['name']} at {frame['location']} ({frame['address']})")
-    for name, value in snapshot.get('registers', {}).items():
+    instructions = snapshot.get('disassembly', [])
+    current_instruction = instructions[0] if instructions else ''
+    registers = snapshot.get('registers', {})
+    relevant = []
+    for name, value in registers.items():
+        key = name.lower()
+        if key == 'rip' or (key != 'eflags' and re.search(r'\b' + re.escape(key) + r'\b', current_instruction, re.I)):
+            relevant.append((name, value))
+    if not relevant:
+        relevant = list(registers.items())[:4]
+    for name, value in relevant[:5]:
         add('Register ' + name.upper(), value)
     source = snapshot.get('source')
     if source:
         lines = source['text'].splitlines()
         current = source['line']
-        excerpt = '\n'.join(f'{i+1}: {lines[i]}' for i in range(max(0,current-5), min(len(lines),current+4)))
+        excerpt = '\n'.join(f'{i+1}: {lines[i]}' for i in range(max(0,current-9), min(len(lines),current+8)))
         add('Source near current stop · ' + source['name'], excerpt)
-    instructions = snapshot.get('disassembly', [])
     if instructions:
         add('Instructions at RIP', '\n'.join(instructions[:8]))
-    if snapshot.get('memory'):
-        add('Selected memory words', '\n'.join(f"{item['address']}: {item['value']}" for item in snapshot['memory'][:8]))
+    memory = snapshot.get('memory', [])
+    if memory:
+        try:
+            memory_base = int(memory[0]['address'], 16)
+            stack_base = int(registers.get('rsp', '0'), 16)
+        except (TypeError, ValueError):
+            memory_base, stack_base = 0, 0
+        if memory_base != stack_base:
+            add('Selected memory words', '\n'.join(f"{item['address']}: {item['value']}" for item in memory[:8]))
     if snapshot.get('output'):
         add('Program output', snapshot['output'][-2000:])
     return facts
@@ -51,10 +68,11 @@ def validate_report(report, evidence):
         raise ValueError('Model returned an invalid report; try again or choose a stronger model')
     summary = report['summary'].strip()
     hypotheses = report.get('hypotheses')
-    if not summary or len(summary) > 2000 or not isinstance(hypotheses, list) or not 1 <= len(hypotheses) <= 4:
-        raise ValueError('Model report must contain a summary and one to four hypotheses')
+    if not summary or len(summary) > 2000 or not isinstance(hypotheses, list) or len(hypotheses) != 1:
+        raise ValueError('Model report must contain a summary and one leading hypothesis')
     known = {fact['id'] for fact in evidence}
     clean = []
+    seen_claims = set()
     for item in hypotheses:
         if not isinstance(item, dict):
             raise ValueError('Invalid model hypothesis')
@@ -63,9 +81,17 @@ def validate_report(report, evidence):
             raise ValueError('Invalid hypothesis text')
         if not isinstance(check,str) or not check.strip() or len(check)>1500:
             raise ValueError('Missing next inspection step')
-        if not isinstance(refs,list) or not refs or any(not isinstance(ref,str) or ref not in known for ref in refs):
+        if not isinstance(refs,list) or not 1 <= len(refs) <= 3:
+            raise ValueError('Each hypothesis must cite one to three evidence items')
+        if any(not isinstance(ref,str) or ref not in known for ref in refs):
             raise ValueError('Model cited unknown evidence; report rejected')
+        claim_key = re.sub(r'\W+', ' ', claim.casefold()).strip()
+        if claim_key in seen_claims:
+            continue
+        seen_claims.add(claim_key)
         clean.append({'claim':claim, 'next_check':check, 'evidence_ids':list(dict.fromkeys(refs))})
+    if not clean:
+        raise ValueError('Model repeated the same hypothesis; try again or choose a stronger model')
     return {'summary':summary, 'hypotheses':clean}
 
 
@@ -84,7 +110,10 @@ def investigate(snapshot, question):
         'Do not claim to have executed tests, read variables, or established a root cause. '
         'Register contents are observations, not proof of variable values. Distinguish hypotheses from facts. '
         'Do not assume an ABI register still holds the original argument after a function prologue. '
-        'Return JSON with summary (string) and hypotheses (array of 1 to 3 objects). '
+        'Return JSON with summary (string) and hypotheses (array of exactly one object). '
+        'Give only the leading diagnosis; do not list alternatives or restate the same idea. '
+        'If the evidence is insufficient, say what remains uncertain in the summary. '
+        'For the hypothesis, cite only the 1 to 3 strongest, directly relevant evidence IDs; never list unrelated evidence. '
         'Each object needs claim (string), evidence_ids (array of existing E identifiers), '
         'and next_check (a specific manual inspection suggestion). Every hypothesis needs evidence references. '
         'If the stop is not a failure, explain that and suggest an inspection. Never invent evidence identifiers.'
