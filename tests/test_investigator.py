@@ -5,7 +5,9 @@ from unittest.mock import patch
 from workbench.investigator import evidence_for, investigate, validate_report
 
 
-SNAPSHOT = {'state':'stopped','reason':'Stopped by signal 11','registers':{'rip':'0x401100','rax':'0x0'},
+SNAPSHOT = {'state':'stopped','reason':'Stopped by signal 11','signal_name':'SIGSEGV',
+            'signal_code_name':'SEGV_MAPERR','signal_address':'0x0',
+            'registers':{'rip':'0x401100','rax':'0x0'},
             'stack':[{'name':'read_balance','location':'crash.cpp:4','address':'0x401100'}],
             'source':{'name':'crash.cpp','line':2,'text':'int read_balance(int* p) {\n return *p;\n}'},
             'disassembly':['401100: mov eax, DWORD PTR [rax]']}
@@ -17,6 +19,7 @@ class InvestigatorTests(TestCase):
         self.assertEqual(evidence[0]['value'], 'Stopped by signal 11')
         self.assertEqual(len({item['id'] for item in evidence}), len(evidence))
         self.assertTrue(any('return *p' in item['value'] for item in evidence))
+        self.assertTrue(any('SEGV_MAPERR' in item['value'] and '0x0' in item['value'] for item in evidence))
 
     def test_unknown_references_are_rejected(self):
         with self.assertRaisesRegex(ValueError,'unknown evidence'):

@@ -66,11 +66,33 @@ class EngineTests(unittest.TestCase):
         result = self.command('continue')
         self.assertEqual(result['state'], 'stopped')
         self.assertIn('signal 11', result['reason'])
+        self.assertEqual(result['signal_name'], 'SIGSEGV')
+        self.assertEqual(result['signal_code_name'], 'SEGV_MAPERR')
+        self.assertEqual(result['signal_address'], '0x0')
         self.assertTrue(result['frames'])
         self.assertTrue(result['memory'])
         result = self.command('continue')
         self.assertEqual(result['state'], 'exited')
         self.assertIn('signal 11', result['reason'])
+
+    def test_fault_corpus_captures_distinct_kernel_diagnostics(self):
+        cases = {
+            'crash_write': ('SIGSEGV', 'SEGV_MAPERR', '0x0'),
+            'bounds': ('SIGSEGV', 'SEGV_ACCERR', None),
+            'divide': ('SIGFPE', 'FPE_INTDIV', None),
+        }
+        for target, (signal_name, code_name, address) in cases.items():
+            with self.subTest(target=target):
+                self.launch(target)
+                result = self.command('continue')
+                self.assertEqual(result['state'], 'stopped')
+                self.assertEqual(result['signal_name'], signal_name)
+                self.assertEqual(result['signal_code_name'], code_name)
+                self.assertTrue(result['signal_address'])
+                if address is not None:
+                    self.assertEqual(result['signal_address'], address)
+                if target == 'bounds':
+                    self.assertNotEqual(result['signal_address'], '0x0')
 
     def test_running_process_can_be_paused(self):
         self.launch('loop')

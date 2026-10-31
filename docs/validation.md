@@ -18,10 +18,17 @@ construction, report parsing, citation rejection, missing configuration and
 external-endpoint rejection. These adapter tests do not establish model quality.
 The live model check is recorded separately below.
 
-The source-breakpoint and argument-passing extension brings the automated suite
+The source-breakpoint and argument-passing extension brought the automated suite
 to 22 passing tests. These cover executable-line resolution, an explicit error
 for an unmapped line, and arguments containing spaces and shell syntax passed
 literally to the target. The debugger does not spawn a shell for target launch.
+
+The incident-handoff extension raises the suite to 24 tests. A four-fixture
+corpus (null read, null write, protected-page access, and integer divide by zero)
+produces four downloadable Markdown reports with kernel signal codes, source,
+stack, registers, instructions, and output. All four signatures are distinct;
+repeating the null-read fixture preserves its signature, supporting duplicate
+incident grouping.
 
 Browser QA exercised launch, adding `main`, continuing to the breakpoint,
 instruction stepping with RIP change, and stepping from ledger.cpp line 14 to
@@ -34,11 +41,9 @@ executables, shared library unwinding, or other architectures.
 ## Live local AI check
 
 The Compose workbench ran Ollama 0.40.13 with `qwen2.5-coder:1.5b`. On the
-included crash fixture, the adapter returned one hypothesis in 4.75 seconds,
-labelled it unverified, and cited captured instructions and program output using
-known evidence IDs. The debugger independently showed SIGSEGV at
-`crash.cpp:4`, a zero RAX value, a load through `[rax]`, and the caller passing
-`nullptr` at line 10. The model's cited evidence did not include the source excerpt
-or RAX, so this run demonstrates the local integration and citation validation,
-not that the model independently identified every relevant fact. One fixture and
-one response do not establish model accuracy generally.
+included crash fixture, the adapter returned one unverified hypothesis in 15.74
+seconds, citing the captured instruction pointer and RAX value. The debugger
+independently captured `SIGSEGV / SEGV_MAPERR` at address zero, the faulting
+instruction at `crash.cpp:4`, and the caller passing `nullptr` at line 10. This
+demonstrates the local inference path and evidence-ID validation; it does not
+establish general model accuracy or a measured reduction in human triage time.

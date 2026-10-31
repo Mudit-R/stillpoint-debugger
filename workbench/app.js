@@ -34,6 +34,14 @@ function render(data) {
   el('pid').textContent=data.pid > 0 ? 'PID '+data.pid : 'PID —';
   el('output').textContent=data.output || 'Waiting for program output…';
   el('disassembly').textContent=(data.disassembly || []).join('\n') || 'No instruction mapping at this address.';
+  const incident=data.incident;
+  el('incidentPanel').hidden=!incident;
+  if(incident) {
+    el('incidentSignature').textContent=incident.signature;
+    el('incidentSignal').textContent=incident.signal_name+(incident.signal_code_name?' · '+incident.signal_code_name:'');
+    el('incidentLocation').textContent=incident.location;
+    el('incidentDetail').textContent=(incident.signal_address?'Signal address '+incident.signal_address+' · ':'')+'Download the captured stack, registers, source and instructions as a handoff report.';
+  }
   if(investigation && (investigation.binary!==data.binary || JSON.stringify(investigation.registers_at_capture)!==JSON.stringify(data.registers))) {
     el('aiStatus').textContent='This report describes an earlier stop. Investigate again for the current state.';
   }
@@ -91,7 +99,7 @@ fetch('/api/status').then(response=>response.json()).then(render).catch(error=>{
   el('error').textContent=error.message; el('error').hidden=false;
 });
 fetch('/api/targets').then(response=>response.json()).then(data=>{
-  const labels={ledger:'ledger · successful settlement',crash:'crash · invalid pointer',loop:'loop · pause and resume'};
+  const labels={ledger:'ledger · successful settlement',crash:'crash · null read',crash_write:'crash_write · null write',bounds:'bounds · protected page',divide:'divide · integer exception',loop:'loop · pause and resume'};
   el('target').replaceChildren();
   for(const target of data.targets) { const option=text('option',labels[target] || target); option.value=target; el('target').append(option); }
   if(data.targets.includes('ledger')) el('target').value='ledger';

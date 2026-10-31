@@ -1,0 +1,7 @@
+\resumeProjectHeading{\textbf{Stillpoint: Native Crash Triage Workbench} \textbar\ \emph{C++20, Linux ptrace, Python, Docker, Ollama}}{\href{https://github.com/Mudit-R/stillpoint-debugger}{\seticon{faGithub} \underline{}}}
+\resumeItemListStart
+  \resumeItem{Automated crash handoff with a one-click Markdown report containing kernel signal/code/address, source, stack, registers, disassembly, and output; validated report generation across \textbf{4/4 seeded fault cases}, with repeat crashes retaining a stable signature for duplicate grouping.}
+  \resumeItem{Implemented a native non-PIE x86-64 debugger in \textbf{C++20} using \textbf{ptrace}, including the \textbf{INT3} breakpoint lifecycle (patch, restore instruction byte, correct RIP, single-step, re-arm), signal capture, and process cleanup.}
+  \resumeItem{Built a Python/browser workbench and local Ollama investigator that returns a schema-checked, evidence-referenced hypothesis and manual next check; verified with \textbf{24 automated tests} and passing GitHub Actions.}
+\resumeItemListEnd
+\vspace{-4pt}

@@ -27,6 +27,13 @@ def evidence_for(snapshot):
     def add(label, value):
         facts.append({'id': f'E{len(facts)+1}', 'label': label, 'value': str(value)[:2000]})
     add('Stop reason', snapshot.get('reason'))
+    if snapshot.get('signal_name'):
+        details = snapshot['signal_name']
+        if snapshot.get('signal_code_name'):
+            details += ' · ' + snapshot['signal_code_name']
+        if snapshot.get('signal_address'):
+            details += ' · signal address ' + snapshot['signal_address']
+        add('Kernel signal details', details)
     for frame in [f for f in snapshot.get('stack', []) if f.get('name') not in ('??', '')][:2]:
         add('Stack frame', f"{frame['name']} at {frame['location']} ({frame['address']})")
     instructions = snapshot.get('disassembly', [])

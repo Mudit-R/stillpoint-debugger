@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'workbench'))
 from investigator import configuration, investigate
+from incidents import incident_for, incident_report
 BUILD = ROOT / 'build'
 LOCK = threading.Lock()
 ENGINE = None
@@ -97,6 +98,7 @@ def request_engine(command):
                 snapshot['source'] = {'name': source.name, 'line': int(number) if number.isdigit() else 0,
                                       'text': source.read_text()}
     snapshot['binary'] = BINARY.name if BINARY else None
+    snapshot['incident'] = incident_for(snapshot)
     return snapshot
 
 
@@ -107,23 +109,30 @@ class Handler(BaseHTTPRequestHandler):
     def valid_host(self):
         return self.headers.get('Host', '') in (f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}')
 
-    def send(self, status, data, mime='application/json'):
-        body = json.dumps(data).encode() if mime == 'application/json' else data
+    def send(self, status, data, mime='application/json', extra_headers=None):
+        if mime == 'application/json':
+            body = json.dumps(data).encode()
+        elif isinstance(data, str):
+            body = data.encode('utf-8')
+        else:
+            body = data
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self'; script-src 'self'; frame-ancestors 'none'")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
         if not self.valid_host():
             return self.send(403, {'error': 'Use localhost'})
-        if self.path in ('/', '/app.js', '/style.css', '/investigator.css'):
+        if self.path in ('/', '/app.js', '/style.css', '/investigator.css', '/incident.css'):
             name = 'index.html' if self.path == '/' else self.path[1:]
-            mime = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript', 'style.css': 'text/css', 'investigator.css':'text/css'}[name]
+            mime = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript', 'style.css': 'text/css', 'investigator.css':'text/css', 'incident.css':'text/css'}[name]
             return self.send(200, (ROOT / 'workbench' / name).read_bytes(), mime)
         if self.path == '/api/status':
             with LOCK:
@@ -134,6 +143,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/ai/config':
             config = configuration()
             return self.send(200, {'configured':bool(config['model']), 'model':config['model'], 'provider':'Local Ollama'})
+        if self.path == '/api/incident-report.md':
+            with LOCK:
+                try:
+                    report = incident_report(request_engine('status'))
+                except ValueError as error:
+                    return self.send(409, {'error':str(error)})
+            return self.send(200, report, 'text/markdown; charset=utf-8',
+                             {'Content-Disposition':'attachment; filename="stillpoint-incident.md"'})
         if self.path == '/api/targets':
             targets = []
             for path in sorted(BUILD.iterdir()):

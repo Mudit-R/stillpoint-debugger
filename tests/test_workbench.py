@@ -75,6 +75,37 @@ class WorkbenchTests(unittest.TestCase):
             self.command('launch', '../examples/ledger.cpp')
         self.assertEqual(error.exception.code, 400)
 
+    def test_incident_reports_cover_fault_corpus_and_group_repeats(self):
+        with urllib.request.urlopen(self.origin + '/', timeout=5) as response:
+            page = response.read().decode()
+        self.assertIn('id="incidentPanel"', page)
+        self.assertIn('Download handoff report', page)
+        cases = {
+            'crash': ('SIGSEGV', 'SEGV_MAPERR'),
+            'crash_write': ('SIGSEGV', 'SEGV_MAPERR'),
+            'bounds': ('SIGSEGV', 'SEGV_ACCERR'),
+            'divide': ('SIGFPE', 'FPE_INTDIV'),
+        }
+        signatures = {}
+        for target, (signal_name, code_name) in cases.items():
+            with self.subTest(target=target):
+                self.assertEqual(self.command('launch', target)['state'], 'stopped')
+                stopped = self.command('continue')
+                self.assertEqual(stopped['signal_name'], signal_name)
+                self.assertEqual(stopped['signal_code_name'], code_name)
+                self.assertIsNotNone(stopped['incident'])
+                signatures[target] = stopped['incident']['signature']
+                with urllib.request.urlopen(self.origin + '/api/incident-report.md', timeout=5) as response:
+                    self.assertIn('text/markdown', response.headers['Content-Type'])
+                    self.assertIn('attachment;', response.headers['Content-Disposition'])
+                    report = response.read().decode()
+                for expected in (signatures[target], signal_name, code_name, '## Stack', '## Registers',
+                                 '## Instructions at RIP', '## Source context', '## Captured output'):
+                    self.assertIn(expected, report)
+        self.assertEqual(len(set(signatures.values())), len(cases))
+        self.command('launch', 'crash')
+        repeated = self.command('continue')
+        self.assertEqual(repeated['incident']['signature'], signatures['crash'])
 
 if __name__ == '__main__':
     unittest.main()

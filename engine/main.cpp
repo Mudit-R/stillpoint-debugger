@@ -21,6 +21,43 @@
 #include <vector>
 
 using Address = unsigned long long;
+std::string signal_label(int signal) {
+    switch (signal) {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGBUS: return "SIGBUS";
+        case SIGILL: return "SIGILL";
+        case SIGFPE: return "SIGFPE";
+        case SIGABRT: return "SIGABRT";
+        case SIGTRAP: return "SIGTRAP";
+        case SIGTERM: return "SIGTERM";
+        case SIGINT: return "SIGINT";
+        default: return signal ? "signal " + std::to_string(signal) : "";
+    }
+}
+std::string signal_code_label(int signal, int code) {
+    if (signal == SIGSEGV) {
+        if (code == SEGV_MAPERR) return "SEGV_MAPERR";
+        if (code == SEGV_ACCERR) return "SEGV_ACCERR";
+    }
+    if (signal == SIGBUS) {
+        if (code == BUS_ADRALN) return "BUS_ADRALN";
+        if (code == BUS_ADRERR) return "BUS_ADRERR";
+        if (code == BUS_OBJERR) return "BUS_OBJERR";
+    }
+    if (signal == SIGFPE) {
+        if (code == FPE_INTDIV) return "FPE_INTDIV";
+        if (code == FPE_INTOVF) return "FPE_INTOVF";
+    }
+    if (signal == SIGILL) {
+        if (code == ILL_ILLOPC) return "ILL_ILLOPC";
+        if (code == ILL_ILLOPN) return "ILL_ILLOPN";
+    }
+    if (signal == SIGTRAP) {
+        if (code == TRAP_TRACE) return "TRAP_TRACE";
+        if (code == TRAP_BRKPT) return "TRAP_BRKPT";
+    }
+    return code ? "code " + std::to_string(code) : "";
+}
 std::string quote(const std::string& s) {
     std::ostringstream out; out << '"';
     for (unsigned char c : s) {
@@ -46,6 +83,9 @@ class Debugger {
     Address pending = 0;
     Address inspect_address = 0;
     int pending_signal = 0;
+    int stop_signal = 0, stop_signal_code = 0;
+    Address signal_address = 0;
+    bool has_signal_address = false;
     FILE* capture = nullptr;
 
     void require_stop() const {
@@ -122,6 +162,7 @@ class Debugger {
             }
             if (!WIFSTOPPED(status)) continue;
             state = "stopped"; int sig = WSTOPSIG(status); pending_signal = 0;
+            stop_signal = 0; stop_signal_code = 0; signal_address = 0; has_signal_address = false;
             reason = "Stopped by signal " + std::to_string(sig);
             auto r = regs();
             auto found = breaks.find(r.rip-1);
@@ -132,8 +173,19 @@ class Debugger {
             } else if (sig == SIGTRAP) {
                 siginfo_t info{}; trace(PTRACE_GETSIGINFO, pid, 0, reinterpret_cast<Address>(&info));
                 if (info.si_code == TRAP_TRACE) reason = "Instruction step";
-                else pending_signal = sig;
-            } else if (sig != SIGSTOP) pending_signal = sig;
+                else { pending_signal = sig; stop_signal = sig; stop_signal_code = info.si_code; }
+            } else if (sig != SIGSTOP) {
+                pending_signal = sig; stop_signal = sig;
+                siginfo_t info{};
+                try {
+                    trace(PTRACE_GETSIGINFO, pid, 0, reinterpret_cast<Address>(&info));
+                    stop_signal_code = info.si_code;
+                    if (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL || sig == SIGFPE) {
+                        signal_address = reinterpret_cast<Address>(info.si_addr);
+                        has_signal_address = true;
+                    }
+                } catch (const std::runtime_error&) {}
+            }
             return true;
         } while (true);
     }
@@ -156,6 +208,7 @@ public:
     void stop() {
         if (pid > 0) { kill(pid, SIGKILL); int status; while (waitpid(pid, &status, 0)<0 && errno==EINTR) {} }
         pid=-1; state="idle"; reason="Session ended"; pending=0; pending_signal=0; inspect_address=0; breaks.clear();
+        stop_signal=0; stop_signal_code=0; signal_address=0; has_signal_address=false;
     }
     Address resolve(const std::string& value) {
         if (symbols.contains(value)) return symbols[value];
@@ -195,7 +248,8 @@ public:
             state="running"; wait_event();
             if (state != "stopped") throw std::runtime_error("Executable did not stop at exec");
             trace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL);
-            pending_signal=0; reason="Executable loaded";
+            pending_signal=0; stop_signal=0; stop_signal_code=0; signal_address=0; has_signal_address=false;
+            reason="Executable loaded";
         } else if (cmd=="break") {
             require_stop(); auto addr=resolve(arg);
             if (!breaks.contains(addr)) { auto word=trace(PTRACE_PEEKDATA,pid,addr); breaks[addr]={static_cast<unsigned char>(word & 0xff),true}; byte(addr,0xcc); }
@@ -219,6 +273,9 @@ public:
     std::string snapshot(const std::string& error="") {
         collect_output(); std::ostringstream s;
         s << "{\"state\":" << quote(state) << ",\"reason\":" << quote(reason) << ",\"error\":" << quote(error)
+          << ",\"signal_number\":" << stop_signal << ",\"signal_name\":" << quote(signal_label(stop_signal))
+          << ",\"signal_code\":" << stop_signal_code << ",\"signal_code_name\":" << quote(signal_code_label(stop_signal,stop_signal_code))
+          << ",\"signal_address\":" << quote(has_signal_address ? hex(signal_address) : "")
           << ",\"pid\":" << pid << ",\"output\":" << quote(output) << ",\"registers\":{";
         if (state=="stopped") {
             auto r=regs();

@@ -50,10 +50,17 @@ channel and reads EOF. Interactive terminal input is not supported yet.
 - Bounded source-line stepping in the workbench (step into, up to 128 instructions
   or two seconds; returns earlier at signals and breakpoints).
 - Captured program output (up to 64 KiB), local stop history and JSON export.
+- Crash incident signatures and one-click Markdown handoff reports with kernel
+  signal details, fault address, source, stack, registers, disassembly and output.
 - Real-process integration tests and Linux CI.
 - Intel-syntax disassembly at the current instruction address via GNU objdump.
 - Local AI investigation with one leading hypothesis, up to three captured
   evidence references, stale-stop detection, and citation validation.
+
+The incident examples cover null reads, null writes, protected-page access and
+integer divide-by-zero. All four produce issue-ready reports; regression checks
+verify distinct signatures across the cases and a repeatable signature for a
+rerun, so teams can group duplicate reports during triage.
 
 ## Local AI investigator
 
@@ -62,11 +69,12 @@ docker compose up -d --build
 docker compose exec stillpoint-ai ollama pull qwen2.5-coder:1.5b
 ```
 
-Open the workbench, launch `crash`, and continue to its SIGSEGV stop. In the
-Investigator panel, ask what the stop suggests. The local model receives the
-captured stop reason, registers, up to four stack frames, nearby example source,
-instructions at RIP, and recent program output. The model does not receive the
-whole repository. Model files stay in the ignored `.local/ollama/` directory.
+Open the workbench, launch `crash`, and continue to its SIGSEGV stop. The crash
+panel provides a stable incident signature and a downloadable Markdown handoff
+report. In the Investigator panel, ask what the stop suggests. The local model
+receives the captured stop reason, relevant registers, useful stack frames,
+nearby example source, instructions at RIP, and recent program output. It does
+not receive the whole repository. Model files stay in `.local/ollama/`.
 The model server has no published host port in the Compose setup.
 
 `STILLPOINT_AI_MODEL` selects an installed Ollama model; the example uses a small
