@@ -10,5 +10,21 @@ jobs:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j2
       - run: python3 -m unittest discover -s tests -v
-      - run: python3 -m py_compile workbench/server.py
+      - run: python3 -m py_compile workbench/server.py workbench/triage.py workbench/incidents.py workbench/investigator.py
       - run: node --check workbench/app.js
+      - name: Verify CI crash handoff
+        run: |
+          mkdir -p artifacts
+          set +e
+          python3 workbench/triage.py build/crash --report artifacts/crash.md
+          status=$?
+          set -e
+          test "$status" -eq 139
+          grep -q 'SIGSEGV' artifacts/crash.md
+          grep -q 'ELF build ID' artifacts/crash.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: stillpoint-crash-handoff
+          path: artifacts/crash.md
+          if-no-files-found: warn

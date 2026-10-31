@@ -1,7 +1,7 @@
 \resumeProjectHeading{\textbf{Stillpoint: Native Crash Triage Workbench} \textbar\ \emph{C++20, Linux ptrace, Python, Docker, Ollama}}{\href{https://github.com/Mudit-R/stillpoint-debugger}{\seticon{faGithub} \underline{}}}
 \resumeItemListStart
-  \resumeItem{Automated crash-to-handoff triage: one click packages signal, source, stack, registers, RIP disassembly, output, and ELF build ID into Markdown; verified on \textbf{5/5 reproducible binaries} across four fault classes, with fingerprints that group same-build reruns and separate releases.}
+  \resumeItem{Added CI-ready crash triage that emits a Markdown artifact while preserving the target's signal exit code; packages signal, source, stack, registers, RIP disassembly, output, and ELF build ID across \textbf{5 reproducible binaries / 4 fault classes}, with build-aware duplicate grouping.}
   \resumeItem{Extended a native \textbf{C++20 ptrace} debugger to inspect PIE binaries while preserving ASLR; resolved load bias across symbols, source breakpoints, stack frames, and disassembly, and validated the \textbf{INT3} restore/step/re-arm lifecycle.}
-  \resumeItem{Built a Python/browser workbench and local Ollama investigator that grounds hypotheses in validated evidence IDs; verified with \textbf{26 tests} and passing GitHub Actions.}
+  \resumeItem{Built a Python/browser workbench and local Ollama investigator that grounds hypotheses in validated evidence IDs; verified with \textbf{29 tests}, CI report-artifact generation, and passing GitHub Actions.}
 \resumeItemListEnd
 \vspace{-4pt}

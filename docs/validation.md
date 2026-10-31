@@ -31,6 +31,13 @@ IDs. The PIE fixture's source breakpoint and runtime disassembly resolve at its
 relocated addresses. All five signatures are distinct; repeating the same null
 read preserves its signature, while changing the build ID changes the signature.
 
+The headless triage command adds three process-level checks: a crash writes a
+build-aware report and returns `128 + signal`, a successful target returns its
+own status without creating a crash report, and a timed-out target is stopped.
+The full suite now passes 29 tests. GitHub Actions runs the command against the
+crash fixture, checks its `SIGSEGV` report and status 139, then uploads the
+handoff as a workflow artifact.
+
 After rebuilding the local Compose service, a live API check launched the PIE
 fixture under a non-zero ASLR load bias, stopped at `crash.cpp:10`, captured its
 `SIGSEGV` at `crash.cpp:4`, and downloaded a handoff report containing that

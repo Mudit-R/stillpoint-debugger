@@ -58,12 +58,29 @@ channel and reads EOF. Interactive terminal input is not supported yet.
 - Intel-syntax disassembly at the current instruction address via GNU objdump.
 - Local AI investigation with one leading hypothesis, up to three captured
   evidence references, stale-stop detection, and citation validation.
+- Headless CI triage that preserves the target's exit status and uploads a
+  build-aware Markdown crash handoff as a GitHub Actions artifact.
 
 The incident corpus covers null reads, null writes, protected-page access and
 integer divide-by-zero, including a PIE/ASLR build. All five tested targets
 produce issue-ready reports. ELF build IDs distinguish reports from different
 builds; regression checks also confirm a rerun of the same build keeps its
 signature, so teams can group duplicate reports without merging separate builds.
+
+## CI crash triage
+
+Run a test executable without starting the browser workbench and save an incident
+handoff when it faults:
+
+```sh
+python3 workbench/triage.py build/your-program --report artifacts/crash.md --timeout 30
+```
+
+The command returns the target's exit code on normal termination, `128 + signal`
+after a fault, and `124` when its timeout expires. It passes arguments after `--`
+and forwards captured program output. It writes no crash report for a successful
+run. CI can upload the Markdown file as an artifact and retain the failing step's
+conventional signal exit status.
 
 ## Local AI investigator
 
