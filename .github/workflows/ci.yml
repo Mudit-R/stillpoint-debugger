@@ -1,0 +1,14 @@
+name: Native debugger checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j2
+      - run: python3 -m unittest discover -s tests -v
+      - run: python3 -m py_compile workbench/server.py
+      - run: node --check workbench/app.js

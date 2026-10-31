@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stillpoint — Native debugger</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><a class="brand" href="/" aria-label="Stillpoint home"><span class="mark">s.</span>stillpoint<span class="edition">NATIVE DEBUGGER</span></a><span class="platform">LINUX / x86-64</span><span id="state" class="state">Idle</span></header>
+<div class="shell">
+<aside><div class="section-label">WORKSPACE</div><h1>Find the moment<br>it went wrong.</h1><p class="intro">A live view inside your process. Stop execution, inspect state, and follow the evidence.</p>
+<label for="target">EXECUTABLE</label><select id="target"><option value="ledger">ledger · successful settlement</option><option value="crash">crash · invalid pointer</option><option value="loop">loop · pause and resume</option></select><button id="launch" class="primary">Launch session <span>↗</span></button>
+<div class="divider"></div><div class="section-label">BREAKPOINTS <span id="bpCount">0</span></div><form id="breakForm"><label for="address">Function symbol or address</label><div class="input-row"><input id="address" placeholder="main or 0x401126" autocomplete="off" required><button title="Add breakpoint" aria-label="Add breakpoint">+</button></div></form><div id="breakpoints" class="breakpoints"><p class="muted">Set a breakpoint to stop at a specific instruction.</p></div>
+<details><summary>Available function symbols</summary><div id="symbols" class="symbols"></div></details>
+<div class="scope"><span class="scope-dot"></span>Local process inspection<p>Single thread · fixed-address ELF<br>Frame-pointer stack unwinding</p></div></aside>
+<main><div class="workspace-top"><div><span class="section-label">EXECUTION WORKBENCH</span><h2 id="binary">No executable loaded</h2></div><div class="controls"><button id="continue" title="Continue (F8)">▶ Continue</button><button id="step" title="Instruction step (F10)">↳ Step</button><button id="pause">Ⅱ Pause</button><button id="stop" class="stop">■ End</button></div></div>
+<div class="status-line"><span id="reason">Launch an example to begin inspecting its execution.</span><span id="pid">PID —</span></div><p id="error" role="alert" hidden></p>
+<div class="workspace-grid"><section class="source panel"><div class="panel-title"><span id="sourceName">SOURCE</span><span id="location">No stop location</span></div><div id="source" class="source-content"><div class="empty"><span class="crosshair">⊙</span><h3>Execution starts here.</h3><p>Launch the ledger example, add a breakpoint at <code>main</code>, then continue.</p><p class="hint">F8 CONTINUE &nbsp; / &nbsp; F10 INSTRUCTION STEP</p></div></div></section>
+<section class="registers panel"><div class="panel-title">REGISTERS<span>HEX</span></div><div id="registers"><p class="empty-small">Register values appear when the process stops.</p></div></section>
+<section class="stack panel"><div class="panel-title">CALL STACK<span id="frameCount">0 FRAMES</span></div><div id="stack"><p class="empty-small">No stack frames captured.</p></div></section>
+<section class="memory panel"><div class="panel-title">STACK MEMORY<span>8 × 64-BIT</span></div><div id="memory"><p class="empty-small">Memory at the stack pointer appears here.</p></div></section></div>
+<section class="console panel"><div class="panel-title"><span>PROGRAM OUTPUT</span><button id="export">Export stop history ↓</button></div><pre id="output">Waiting for program output…</pre></section>
+<section class="timeline"><div class="section-label">STOP HISTORY <span id="historyCount">0</span></div><div id="history"><p class="muted">Observed stops are recorded here. History is observation only; execution cannot be reversed.</p></div></section>
+<footer><span>Stillpoint / ptrace engine</span><span>No remote service. No generated diagnosis.</span></footer>
+</main></div></body></html>

@@ -1,0 +1,94 @@
+"""Integration tests: real ptrace children, no mocked process execution."""
+import json
+from pathlib import Path
+import select
+import subprocess
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class EngineTests(unittest.TestCase):
+    def setUp(self):
+        self.proc = subprocess.Popen([str(ROOT / 'build/stillpoint')], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, text=True)
+
+    def tearDown(self):
+        self.proc.stdin.close()
+        self.proc.wait(timeout=3)
+        self.proc.stdout.close()
+
+    def command(self, line):
+        self.proc.stdin.write(line + '\n')
+        self.proc.stdin.flush()
+        ready, _, _ = select.select([self.proc.stdout], [], [], 4)
+        self.assertTrue(ready, 'Engine command exceeded four seconds')
+        return json.loads(self.proc.stdout.readline())
+
+    def launch(self, name='ledger'):
+        result = self.command('launch ' + str(ROOT / 'build' / name))
+        self.assertEqual(result['error'], '')
+        self.assertEqual(result['state'], 'stopped')
+        return result
+
+    def test_breakpoint_restore_step_and_exit(self):
+        result = self.launch()
+        main = next(s['address'] for s in result['symbols'] if s['name'] == 'main')
+        self.assertEqual(self.command('break main')['breakpoints'], [main])
+        result = self.command('continue')
+        self.assertEqual(result['registers']['rip'], main)
+        self.assertIn('Breakpoint', result['reason'])
+        result = self.command('step')
+        self.assertNotEqual(result['registers']['rip'], main)
+        self.assertEqual(result['breakpoints'], [main])
+        result = self.command('continue')
+        self.assertEqual(result['state'], 'exited')
+        self.assertIn('code 0', result['reason'])
+        self.assertIn('Settlement: 976', result['output'])
+
+    def test_continue_from_breakpoint_executes_original_instruction(self):
+        self.launch()
+        self.command('break main')
+        self.command('continue')
+        self.assertIn('code 0', self.command('continue')['reason'])
+
+    def test_delete_at_breakpoint(self):
+        self.launch()
+        self.command('break main')
+        self.command('continue')
+        self.assertEqual(self.command('delete main')['breakpoints'], [])
+        self.assertIn('code 0', self.command('continue')['reason'])
+
+    def test_crash_is_inspectable_and_signal_is_delivered(self):
+        self.launch('crash')
+        result = self.command('continue')
+        self.assertEqual(result['state'], 'stopped')
+        self.assertIn('signal 11', result['reason'])
+        self.assertTrue(result['frames'])
+        self.assertTrue(result['memory'])
+        result = self.command('continue')
+        self.assertEqual(result['state'], 'exited')
+        self.assertIn('signal 11', result['reason'])
+
+    def test_running_process_can_be_paused(self):
+        self.launch('loop')
+        result = self.command('continue')
+        self.assertEqual(result['state'], 'running')
+        result = self.command('pause')
+        self.assertEqual(result['state'], 'stopped')
+        self.assertEqual(self.command('stop')['state'], 'idle')
+
+    def test_invalid_commands_do_not_destroy_session(self):
+        self.launch()
+        self.assertTrue(self.command('break not_a_symbol')['error'])
+        self.assertEqual(self.command('status')['state'], 'stopped')
+
+    def test_reject_non_elf(self):
+        result = self.command('launch ' + str(ROOT / 'examples/ledger.cpp'))
+        self.assertTrue(result['error'])
+        self.assertEqual(result['state'], 'idle')
+
+
+if __name__ == '__main__':
+    unittest.main()
